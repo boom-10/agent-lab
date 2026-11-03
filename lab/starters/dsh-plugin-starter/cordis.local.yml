@@ -1,0 +1,8 @@
+# 本地开发用 overlay（--patch 加载）。
+# 与 cordis.patch.yml 的区别：name 用「绝对源码路径」，不走 npm 包解析。
+# 官方文档说明：插件路径必须是绝对路径。
+- insert:
+    - id: starter
+      name: '/Users/jiangdong.chen/Desktop/Personal/agent-lab/lab/starters/dsh-plugin-starter/src/index.js'
+    - id: greet
+      name: '/Users/jiangdong.chen/Desktop/Personal/agent-lab/lab/starters/dsh-plugin-starter/src/greet-tool.js'

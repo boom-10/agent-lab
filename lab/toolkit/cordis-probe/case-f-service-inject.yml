@@ -1,0 +1,4 @@
+# ★ consumer 故意排在 provider 前面 —— 验证「顺序不影响加载顺序」
+# 实测：consumer 依然在 provider 之后执行，因为 inject 让 Cordis 等待
+- name: './plugins/p-service-consumer.js'
+- name: './plugins/p-service-provider.js'

@@ -1,0 +1,5 @@
+# 发布用 patch：profile 列出本组合包时应用这一层。
+# 注意：name 用「包名」而不是源码路径，这样 Node 的模块解析才能找到已安装的代码。
+- insert:
+    - id: starter
+      name: dsh-plugin-starter

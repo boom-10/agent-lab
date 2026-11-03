@@ -1,0 +1,41 @@
+{
+  "name": "agent-course",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "从零到 Agent 工程师 —— 课程文档站",
+  "scripts": {
+    "dev": "vite dev --port 3021",
+    "build": "vite build",
+    "prebuild": "node scripts/check-mdx.mjs",
+    "preview": "vite preview --port 3021",
+    "check:mdx": "node scripts/check-mdx.mjs",
+    "check:responsive": "node scripts/check-responsive.mjs",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@mdx-js/react": "^3.1.1",
+    "@tanstack/react-router": "^1.170.46",
+    "@tanstack/react-start": "^1.169.4",
+    "react": "19.2.4",
+    "react-dom": "19.2.4"
+  },
+  "devDependencies": {
+    "@mdx-js/rollup": "^3.1.1",
+    "@tailwindcss/vite": "^4",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "@vitejs/plugin-react": "^6.2.1",
+    "playwright": "^1.64.0",
+    "rehype-pretty-code": "^0.14.1",
+    "rehype-slug": "^6.0.0",
+    "remark-frontmatter": "^5.0.0",
+    "remark-gfm": "^4.0.1",
+    "shiki": "^3.13.0",
+    "tailwindcss": "^4",
+    "typescript": "^5",
+    "vite": "^8.3.5",
+    "yaml": "^2.8.0"
+  }
+}

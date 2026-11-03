@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>第 0001 课 · 让模型说一句话，然后看懂它回了什么</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+
+<main class="content">
+
+  <div class="eyebrow">第 0001 课 · 约 15 分钟 · 动手 1 次命令</div>
+
+  <h1>让模型说一句话，<br>然后看懂它回了什么</h1>
+
+  <p class="lede">你的 26 周路径从这一条命令开始。今天只做一件事：发一次请求，读懂回应。</p>
+
+  <!-- ══════════ 为什么 ══════════ -->
+  <h2 id="why">为什么先学这个</h2>
+
+  <p>你的目标里有两条硬要求，都卡在这一步：</p>
+
+  <ul>
+    <li><strong>「能独立设计、实现、评测、部署生产级 LLM Agent 应用」</strong> ——
+        所有 Agent 框架（LangChain、DSH、任何东西）内部都在做同一件事：
+        <em>发一个 HTTP 请求，读一个 JSON</em>。
+        把这层看透，框架对你就从「魔法」变成「取舍」。</li>
+    <li><strong>面试会问。</strong> 核实的真题里有「Harness 和 LangChain 的本质区别」——
+        没自己调过原生 API 的人，这题只能背概念。</li>
+  </ul>
+
+  <p>而且这一步你有个现成的优势：<strong>你写过前端。</strong>
+  <code>fetch</code>、JSON、异步流——这些对你是母语，只是还没指向新的端点。</p>
+
+  <!-- ══════════ 动手 ══════════ -->
+  <h2 id="do">现在就做：发一次请求</h2>
+
+  <div class="box do">
+    <span class="label">复制粘贴，一行都别改</span>
+    <pre><code><span class="c"># 1. 进实验区，加载 key</span>
+cd ~/Desktop/Personal/agent-lab/lab
+set -a; . ./.env; set +a
+
+<span class="c"># 2. 发请求</span>
+curl -s https://api.deepseek.com/chat/completions \
+  -H <span class="s">"Content-Type: application/json"</span> \
+  -H <span class="s">"Authorization: Bearer $DEEPSEEK_API_KEY"</span> \
+  -d <span class="s">'{"model":"deepseek-flash",
+       "messages":[{"role":"user","content":"用一句话解释什么是 KV Cache"}],
+       "thinking":{"type":"disabled"}}'</span> | python3 -m json.tool</code></pre>
+  </div>
+
+  <p>你会看到一段 JSON。<strong>先别往下读</strong>，自己扫一眼，猜猜每个字段干什么用。</p>
+
+  <div class="box warn">
+    <span class="label">报错了怎么办</span>
+    <p><strong>401 / Authentication Fails</strong> → key 没读出来。跑
+    <code>echo ${#DEEPSEEK_API_KEY}</code>，应该输出 <code>35</code>。
+    输出 <code>0</code> 说明上面那行 <code>set -a; . ./.env; set +a</code> 没执行。</p>
+    <p><strong>Connection error</strong> → 网络或代理。先跑
+    <code>curl -sI https://api.deepseek.com</code> 看通不通。</p>
+  </div>
+
+  <!-- ══════════ 读懂 ══════════ -->
+  <h2 id="read">你刚才拿到的东西，逐块拆开</h2>
+
+  <p>下面是<strong>真实</strong>的回应——我替你跑过一次，字段一个没改：</p>
+
+  <pre><code>{
+  <span class="hl">"choices"</span>: [
+    {
+      "index": 0,
+      <span class="hl">"message"</span>: {
+        "role": "assistant",
+        "content": "KV Cache 是一种在自回归生成时缓存历史 token 的
+                    Key/Value 张量、避免每步重复计算的推理加速技术。"
+      },
+      <span class="hl">"finish_reason"</span>: "stop"
+    }
+  ],
+  <span class="hl">"usage"</span>: {
+    "prompt_tokens": 10,
+    "completion_tokens": 32,
+    "total_tokens": 42,
+    "prompt_tokens_details": { "cached_tokens": 0 },
+    "prompt_cache_hit_tokens": 0,
+    "prompt_cache_miss_tokens": 10
+  }
+}</code></pre>
+
+  <h3 id="three">真正重要的只有三块</h3>
+
+  <table>
+    <thead><tr><th style="width:15rem">字段</th><th>它回答什么问题</th></tr></thead>
+    <tbody>
+      <tr><td><code>choices[0].message.content</code></td>
+          <td><strong>答案是什么</strong> —— 你要显示给用户的那句话</td></tr>
+      <tr><td><code>choices[0].finish_reason</code></td>
+          <td><strong>这轮是怎么结束的</strong> —— 决定你的代码接下来干什么</td></tr>
+      <tr><td><code>usage</code></td>
+          <td><strong>花了多少</strong> —— 你以后每次都要报的数字</td></tr>
+    </tbody>
+  </table>
+
+  <!-- ══════════ finish_reason ══════════ -->
+  <h2 id="finish">为什么 <code>finish_reason</code> 比你想的重要</h2>
+
+  <p>它<strong>不是给模型看的，是给你看的</strong>。你的代码要根据它决定下一步：</p>
+
+  <table>
+    <thead><tr><th style="width:14rem">值</th><th>你的代码该做什么</th></tr></thead>
+    <tbody>
+      <tr><td><code>stop</code></td><td>正常说完了 → 收工，把 content 给用户</td></tr>
+      <tr><td><code>length</code></td>
+          <td><strong>被截断了</strong> → 答案不完整。加大 max_tokens 或分段续写，<em>别当成功</em></td></tr>
+      <tr><td><code>tool_calls</code></td>
+          <td>模型想调工具 → 去执行，把结果发回去<strong>再来一轮</strong></td></tr>
+      <tr><td><code>content_filter</code></td>
+          <td>被内容策略拦了 → <strong>别重试</strong>，重试也没用</td></tr>
+      <tr><td><code>insufficient_system_resource</code></td>
+          <td>服务端资源不足 → <strong>这个可以重试</strong></td></tr>
+      <tr><td><code>aborted</code></td>
+          <td>被中断了 → 检查是不是你自己取消的</td></tr>
+    </tbody>
+  </table>
+
+  <div class="box">
+    <span class="label">和你未来的工作直接相关</span>
+    <p>你未来的用户会问：「为什么回答到一半停了？」
+    答不出 <code>finish_reason</code> 的工程师，只能回「可能是网络问题吧」。</p>
+  </div>
+
+  <!-- ══════════ usage ══════════ -->
+  <h2 id="usage">关于 <code>usage</code> 里的数字</h2>
+
+  <p>注意这条等式，它<strong>永远成立</strong>：</p>
+
+  <pre><code>prompt_tokens (10) = prompt_cache_hit_tokens (0) + prompt_cache_miss_tokens (10)</code></pre>
+
+  <p>这次全是 <strong>miss</strong>——你第一次发这句话。
+  <code>hit</code> 的部分便宜得多。差多少、怎么才能命中，是后面某一课的内容。
+  今天只要记住：<strong>这两个数字决定你的账单。</strong></p>
+
+  <!-- ══════════ 测验 ══════════ -->
+  <h2 id="quiz">检验一下</h2>
+  <p style="color:var(--ink-soft);font-size:0.92rem">凭记忆答，别往上翻。</p>
+
+  <div class="quiz" data-answer="1">
+    <div class="qnum">问题 1 / 3</div>
+    <div class="qtext"><code>finish_reason</code> 这个字段是给谁看的？</div>
+    <ul class="opts">
+      <li><button class="opt">给模型自己判断要不要继续</button></li>
+      <li><button class="opt">给你判断这轮是怎么结束的</button></li>
+      <li><button class="opt">给计费系统算这次花多少钱</button></li>
+    </ul>
+    <div class="fb"
+         data-ok="对。它是控制流的开关——你的代码根据它决定「收工 / 续写 / 调工具 / 重试」。"
+         data-no="再想想。模型看不到这个字段（它是模型产出之后才确定的）；计费看的是 usage。它是给你——调用方——看的。"></div>
+  </div>
+
+  <div class="quiz" data-answer="2">
+    <div class="qnum">问题 2 / 3</div>
+    <div class="qtext">如果把 <code>finish_reason: "length"</code> 当成成功，会发生什么？</div>
+    <ul class="opts">
+      <li><button class="opt">用户会看到前后矛盾的重复答案</button></li>
+      <li><button class="opt">请求会被服务端直接拒绝掉</button></li>
+      <li><button class="opt">用户会看到一段被腰斩的回答</button></li>
+    </ul>
+    <div class="fb"
+         data-ok="对。这是最常见的线上事故：回答到一半没了，但没有任何报错。用户只能说「回答怎么怪怪的」。"
+         data-no="再想想。请求是成功的（HTTP 200），只是内容被 max_tokens 截断了。问题不在服务端，在你的处理逻辑。"></div>
+  </div>
+
+  <div class="quiz" data-answer="0">
+    <div class="qnum">问题 3 / 3</div>
+    <div class="qtext">某次请求 <code>prompt_cache_hit_tokens</code> 很大，说明什么？</div>
+    <ul class="opts">
+      <li><button class="opt">你发的内容大部分命中缓存</button></li>
+      <li><button class="opt">模型这次的回答变得很短</button></li>
+      <li><button class="opt">你这次请求被服务端限流</button></li>
+    </ul>
+    <div class="fb"
+         data-ok="对。命中缓存的那部分便宜很多。所以「怎么让前缀稳定」是个省钱的真问题。"
+         data-no="再想想。hit/miss 描述的是【你发过去的内容】有没有被缓存——和模型回答多长无关（那是 completion_tokens），也和限流无关。"></div>
+  </div>
+
+  <p class="score quiz-tally"></p>
+
+  <!-- ══════════ 一手资料 ══════════ -->
+  <h2 id="source">想再深入，读这一份</h2>
+
+  <p><a href="https://api-docs.deepseek.com/api/create-chat-completion" target="_blank" rel="noopener">
+  DeepSeek 官方 API 参考 · Create Chat Completion</a> ——
+  所有字段的权威定义。今天只读 <code>choices</code> 和 <code>usage</code> 两节，其余留着以后查。</p>
+
+  <div class="box warn">
+    <span class="label">一个已知陷阱</span>
+    <p>文档里 <strong><code>thinking</code> 默认是开启的</strong>。开着的时候
+    <code>temperature</code> 无效、<code>max_tokens</code> 默认 64K、
+    响应里会多出 <code>reasoning_content</code>。</p>
+    <p>今天我们在请求里显式关了它——<strong>故意的</strong>，让变量少一个。</p>
+  </div>
+
+  <!-- ══════════ 下一课 ══════════ -->
+  <h2 id="next">下一课是什么</h2>
+
+  <p><strong>第 0002 课 · 流式：为什么回答是一个字一个字蹦出来的</strong> ——
+  同一句话，用 <code>stream: true</code> 再发一次。你会看到 SSE 协议，
+  以及一个大部分人第一次写都会踩的坑：<em>它会静默丢数据，不报错。</em></p>
+
+  <div class="box">
+    <span class="label">在那之前，先确认今天的成果</span>
+    <p>你应该已经看到了一段真实 JSON，并且能指着 <code>finish_reason</code> 说出它干什么用。</p>
+    <p>如果还没有 —— <strong>那就还没到下一课</strong>，回头把上面的命令跑通。</p>
+  </div>
+
+  <div class="lesson-foot">
+    <div class="ask">
+      <strong>我是你的老师，随时打断我。</strong><br>
+      命令报错了、某个字段看不懂、「为什么设计成这样」——任何问题都可以直接问。
+      卡住不问才是真正的浪费。
+    </div>
+    <div class="navlinks">
+      <a href="../reference/api-response.html">速查：响应结构</a>
+      <a href="../MISSION.md">MISSION</a>
+      <a href="../NOTES.md">NOTES</a>
+    </div>
+  </div>
+
+</main>
+
+<script src="../assets/course-data.js"></script>
+<script src="../assets/course.js"></script>
+<script src="../assets/quiz.js"></script>
+</body>
+</html>

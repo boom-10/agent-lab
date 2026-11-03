@@ -1,0 +1,2 @@
+# ❌ 只 export class 而不 export apply —— 插件静默不加载
+- name: './plugins/p-service-broken.js'

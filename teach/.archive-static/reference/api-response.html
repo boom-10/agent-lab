@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>速查 · Chat Completions 响应结构</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<main class="content">
+
+    <div class="eyebrow">速查卡 · 打印友好</div>
+  <h1>Chat Completions 响应结构</h1>
+  <p class="lede">压缩后的要点。忘了什么就回来看这一页。</p>
+
+  <h2 id="req">请求（三个要素）</h2>
+  <pre><code>POST  {BASE}/chat/completions
+<span class="k">Content-Type</span>:  application/json
+<span class="k">Authorization</span>: Bearer {API_KEY}      <span class="c"># key 一定以 sk- 开头</span>
+
+{
+  "model":    "deepseek-flash",
+  "messages": [{"role":"user","content":"…"}],
+  "thinking": {"type":"disabled"}          <span class="c"># ★ 默认是开启的，会带来一堆副作用</span>
+}</code></pre>
+
+  <h2 id="top">响应 · 顶层</h2>
+  <dl class="ref-grid">
+    <dt>id</dt>            <dd>本次请求的唯一 id。报障时给服务端看这个。</dd>
+    <dt>object</dt>        <dd><code>chat.completion</code>（非流式）/ <code>chat.completion.chunk</code>（流式）。</dd>
+    <dt>created</dt>       <dd>Unix 秒。</dd>
+    <dt>model</dt>         <dd>实际服务的模型。可能和你请求的不同（比如路由到了别的版本）。</dd>
+    <dt>choices</dt>       <dd>应答数组。<strong>通常只有 1 个</strong>——你几乎总是取 <code>[0]</code>。</dd>
+    <dt>usage</dt>         <dd>token 统计。<strong>流式下必须显式要才有</strong>（见下）。</dd>
+    <dt>system_fingerprint</dt> <dd>服务端配置指纹。变了说明后端配置动过，可用于排查「同样的输入结果突然不一样」。</dd>
+  </dl>
+
+  <h2 id="choice">响应 · choices[0]</h2>
+  <dl class="ref-grid">
+    <dt>message.role</dt>    <dd>总是 <code>"assistant"</code>。</dd>
+    <dt>message.content</dt> <dd><strong>答案</strong>。调工具时可能是 <code>null</code>。</dd>
+    <dt>message.reasoning_content</dt> <dd>思考过程。<strong>只在 <code>thinking</code> 开启时出现</strong>，且要单独渲染——别混进正文。</dd>
+    <dt>message.tool_calls</dt> <dd>模型想调的工具。<code>function.arguments</code> 是<strong>字符串</strong>，需要 <code>JSON.parse</code>。</dd>
+    <dt>finish_reason</dt>   <dd>这轮为什么结束。见下表。</dd>
+  </dl>
+
+  <h2 id="finish">finish_reason 全表（六个取值）</h2>
+  <table>
+    <tr><th>值</th><th>含义</th><th>你的代码该做什么</th></tr>
+    <tr><td><span class="pill stop">stop</span></td>
+        <td>模型正常说完了</td><td>收工，渲染 content</td></tr>
+    <tr><td><span class="pill mid">length</span></td>
+        <td>撞到 <code>max_tokens</code> 上限被截断</td><td><strong>答案不完整</strong>：加大上限或分段续写。别当成功</td></tr>
+    <tr><td><span class="pill mid">tool_calls</span></td>
+        <td>模型要求调工具</td><td>执行工具 → 以 <code>role:"tool"</code> 回填 → <strong>再来一轮</strong></td></tr>
+    <tr><td><span class="pill bad">content_filter</span></td>
+        <td>被内容策略拦截</td><td><strong>不要重试</strong>，重试还是被拦</td></tr>
+    <tr><td><span class="pill mid">insufficient_system_resource</span></td>
+        <td>服务端资源不足</td><td><strong>可以重试</strong>（退避后再试）</td></tr>
+    <tr><td><span class="pill bad">aborted</span></td>
+        <td>被中断</td><td>检查是不是你自己取消的</td></tr>
+  </table>
+
+  <h2 id="usage">usage 字段</h2>
+  <pre><code>prompt_tokens       = prompt_cache_hit_tokens + prompt_cache_miss_tokens   <span class="c"># 恒等式</span>
+completion_tokens   <span class="c"># 模型生成的部分（含 reasoning_tokens）</span>
+total_tokens        = prompt_tokens + completion_tokens
+
+prompt_tokens_details.cached_tokens     <span class="c"># 与 hit 同义</span>
+completion_tokens_details.reasoning_tokens  <span class="c"># 思考消耗；开启 thinking 时才有</span></code></pre>
+
+  <div class="box warn">
+    <span class="label">流式下拿 usage 的坑</span>
+    <p><code>stream: true</code> 时<strong>默认不带 usage</strong>。必须显式加：</p>
+    <pre style="margin:0.5rem 0 0"><code>"stream_options": { "include_usage": true }</code></pre>
+    <p style="margin-top:0.5rem">开了之后<strong>每个 chunk 都带 <code>usage</code> 字段</strong>，但只有<strong>最后一个是非 null</strong>。
+    没有单独的 usage-only chunk——统计搭在最后一个内容 chunk 上。</p>
+  </div>
+
+  <h2 id="traps">已知陷阱（实测）</h2>
+  <table>
+    <tr><th>陷阱</th><th>后果</th></tr>
+    <tr><td><code>thinking</code> 默认<strong>开启</strong></td>
+        <td><code>temperature</code> 无效；<code>max_tokens</code> 默认 64K；响应多 <code>reasoning_content</code></td></tr>
+    <tr><td><code>stream_options.include_usage</code> 默认不开</td>
+        <td>流式响应<strong>完全拿不到 token 统计</strong></td></tr>
+    <tr><td><code>tool_call_id</code> 与 <code>tool_calls[].id</code> 不匹配</td>
+        <td><strong>HTTP 400</strong>，服务端强制校验。必须原样透传，不能自己生成</td></tr>
+    <tr><td><code>role:"tool"</code> 但前面没有 <code>tool_calls</code></td>
+        <td><strong>HTTP 400</strong>：<code>Messages with role 'tool' must be a response to a preceding message with 'tool_calls'</code></td></tr>
+  </table>
+
+  <h2 id="cost">成本速算</h2>
+  <pre><code><span class="c"># 低峰价，$ / 1M token。高峰（北京时间 08:30–00:30）翻倍。</span>
+flash:  命中 $0.003   未命中 $0.15   输出 $0.60
+v4-pro: 命中 $0.022   未命中 $0.66   输出 $1.98
+
+成本 = hit/1e6 × 命中价 + miss/1e6 × 未命中价 + completion/1e6 × 输出价</code></pre>
+  <p style="font-size:0.86rem;color:var(--ink-soft)">
+  养成习惯：<strong>每次调用都算一遍量级</strong>。面试会问「一天一百万次要多少钱」。</p>
+
+  <hr>
+  <div class="lesson-foot">
+    <div class="ask">
+      <strong>我是你的老师，随时打断我。</strong><br>
+      这张卡上任何一条看不懂、或者你觉得和你观察到的不一样——直接问。
+    </div>
+    <div class="navlinks">
+      <a href="../lessons/0001-first-api-call.html">← 第 0001 课</a>
+      <a href="../MISSION.md">MISSION</a>
+    </div>
+  </div>
+
+</main>
+<script src="../assets/course-data.js"></script>
+<script src="../assets/course.js"></script>
+</body>
+</html>

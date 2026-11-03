@@ -1,0 +1,344 @@
+<Eyebrow>第 0002 课 · 约 25 分钟 · 动手 2 次</Eyebrow>
+
+# 流式：为什么回答是<br/>一个字一个字蹦出来的
+
+<Lede>这一课有一个**不会报错的 bug**。它安静地丢掉大部分内容，退出码还是 0。生产环境里最难查的就是这种。</Lede>
+
+## 为什么这一课值得花时间
+
+两个理由，一个关于产品，一个关于工程。
+
+**产品上**：流式是所有 AI 产品的体验基础。同样一段话，等 3 秒一次性出现，
+和立刻开始一个字一个字往外蹦 —— 用户感知到的速度差了好几倍。
+你做过前端性能优化，这个道理你比我熟：**感知延迟 ≠ 实际延迟**。
+
+**工程上**：流式的数据格式叫 **SSE**（Server-Sent Events）。
+它的解析有一个**静默失败模式** —— 写错了不报错，只是丢数据。
+今天你会亲眼看到它怎么坏。
+
+## 动手 1：同一个请求，加两个参数
+
+<Callout kind="do" title="复制粘贴">
+
+```bash
+cd ~/Desktop/Personal/agent-lab/lab
+set -a; . ./.env; set +a
+
+curl -sN https://api.deepseek.com/chat/completions \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $DEEPSEEK_API_KEY" \
+  -d '{"model":"deepseek-flash",
+       "messages":[{"role":"user","content":"用三个词形容流式输出"}],
+       "thinking":{"type":"disabled"},
+       "stream":true,
+       "stream_options":{"include_usage":true}}'
+```
+
+注意 `-N`（关掉 curl 的缓冲，否则你会看到一次性输出，白测了）。
+
+</Callout>
+
+你会看到一堆这样的行，**一条一条往外蹦**：
+
+```text
+data: {"id":"...","object":"chat.completion.chunk",...,"choices":[{"index":0,"delta":{"role":"assistant","content":""},"finish_reason":null}],"usage":null}
+
+data: {"id":"...","object":"chat.completion.chunk",...,"choices":[{"index":0,"delta":{"content":"实时"},"finish_reason":null}],"usage":null}
+
+data: {"id":"...","object":"chat.completion.chunk",...,"choices":[{"index":0,"delta":{"content":"、"},"finish_reason":null}],"usage":null}
+
+…（还有很多行）
+
+data: [DONE]
+```
+
+### 和上一课对比，三个变化
+
+| | 非流式（第 0001 课） | 流式（现在） |
+| --- | --- | --- |
+| `object` | `chat.completion` | **`chat.completion.chunk`** |
+| 内容字段 | `choices[0].message` | **`choices[0].delta`** |
+| `usage` | 一个对象 | **每个 chunk 都有，但只有最后一个是非 null** |
+
+`delta` 是「增量」的意思 —— 每个 chunk 只带**这一小段**，不是完整内容。
+所以你要自己把它们**拼起来**。
+
+<Callout kind="warn" title="两个只看一遍就会忘的细节">
+
+**① 第一个 chunk 的 `content` 是空字符串**，只带 `role`。
+所以拼的时候要过滤掉空值，否则会多出看不见的字符。
+
+**② `stream_options.include_usage` 不开的话，整个流里拿不到任何 token 统计。**
+注意它**没有单独的 usage-only chunk** —— 统计是搭在最后一个内容 chunk 上的。
+
+</Callout>
+
+## 这叫 SSE，三条规则
+
+SSE 是个很简单的协议，你只需要记三条：
+
+1. 每条事件以 **`data: `** 开头
+2. 事件之间用**一个空行**（也就是 `\n\n`）分隔
+3. 流以 **`data: [DONE]`** 结束
+
+就这么简单。真正的难点在**第 2 条**。
+
+## 动手 2：看一个坏掉的解析器
+
+<Callout kind="do" title="先看它怎么坏，再学怎么修">
+
+需要**两个终端**：
+
+```bash
+# 终端 A：启动本地模拟服务器（免费，可无限次试）
+cd ~/Desktop/Personal/agent-lab/lab
+npm run mock
+
+# 终端 B：跑那份「初学者会写的」解析器
+cd ~/Desktop/Personal/agent-lab/lab
+npm run demo:naive
+```
+
+</Callout>
+
+你会看到这样的输出：
+
+```text
+  ───── 反面教材的运行结果 ─────
+
+  收到的 TCP 片段数 : 8
+  JSON 解析失败次数 : 4   ← 有事件被切断了
+  拿到 [DONE] 了吗  : ✅ 拿到了
+  拿到 usage 了吗   : ✅ hit=96
+
+  期望文本 : "这是模拟服务器返回的一段流式文本，用来验证 SSE 解析是否正确。"
+  实际文本 : "来验证 SS正确。"
+  完整吗   : ❌ 【丢字了】
+```
+
+**盯住这几行看：**
+
+- 它**没有抛异常**
+- 退出码是 **0**
+- `[DONE]` 和 `usage` **都正常拿到了**
+- 它只是**安静地丢掉了 60% 的内容**
+
+这就是最难查的那类 bug。没有报错、没有告警 —— 只有用户说「回答怎么感觉怪怪的」。
+
+## 为什么它会静默丢数据
+
+根源是一句很容易想当然的假设：
+
+> 「每次 `read()` 拿到的就是一条完整的事件」
+
+**这句话是错的。** TCP 给你的是**字节流**，不是**消息流**。
+它不保证任何边界对齐 —— 一次 `read()` 可能给你：
+
+- 半条事件
+- 一条半事件
+- 三条事件
+- 甚至一个**多字节 UTF-8 字符的前两个字节**
+
+那份反面教材就是这么写的：
+
+```js
+for await (const piece of res.body) {
+  const s = decoder.decode(piece, { stream: true })
+  for (const part of s.split('\n\n')) {   // ★ 这里就是 bug
+    // 假设 part 是一条完整事件
+  }
+}
+```
+
+`split('\n\n')` 在**半条事件**上会切出一段残缺的 JSON，`JSON.parse` 抛错，
+被 `catch` 吞掉 —— 数据就没了。
+
+## 正确的写法：一个跨 read 的缓冲区
+
+**先想清楚 buffer 是干什么的。**
+
+它的职责只有一个：**暂存「还不能确定」的东西。**
+
+一个事件什么时候算「确定完整」？**当它后面出现了 `\n\n` 的时候。**
+
+所以每一轮 `read()` 之后，buffer 里其实分成两段：
+
+```text
+buffer = "……最后一个 ⏎⏎ 之前的内容……" + "……最后一个 ⏎⏎ 之后的内容……"
+          └─── 后面有分隔符 → 确定完整 ───┘ └─── 还没等到分隔符 → 不确定 ───┘
+```
+
+**前半段切走处理，后半段留着等下一片。** 就这一件事。
+
+<BufferDemo />
+
+### 走一遍真实的字节
+
+上面演示的那三片拼起来，正好是服务端发出的完整流。
+注意看第 2 步 —— **`da` 和 `ta` 拼回了 `data`**：
+
+| 第几次 read | 拿到 | 拼接后 buffer | 切走 | 留回 |
+| --- | --- | --- | --- | --- |
+| 1 | `data: A⏎⏎da` | `data: A⏎⏎da` | `A` | `da` |
+| 2 | `ta: BBB⏎⏎data: C` | `data: BBB⏎⏎data: C` | `BBB` | `data: C` |
+| 3 | `C⏎⏎data: [DONE]⏎⏎` | `data: CC⏎⏎data: [DONE]⏎⏎` | `CC`、`[DONE]` | （空） |
+
+**单词 `data` 本身都被切成了两半。** 这就是为什么你不能假设任何边界。
+
+### 三种做法的后果
+
+| 做法 | 后果 |
+| --- | --- |
+| 每轮把 buffer 整个清空 | 把「还不确定」的那段一起丢了 → **静默丢数据**（第 1 步的 `da` 就没了） |
+| 处理过的也一直留在 buffer 里 | buffer 无限增长；而且下一轮你会把处理过的事件**再处理一遍**（重复输出） |
+| **切走完整的，留下残片** | 不丢、不重复、还能立刻显示 ✅ |
+
+### 代码
+
+```ts
+let buffer = ''
+
+for await (const piece of res.body) {
+  // ① 追加到缓冲区（stream: true 让 TextDecoder 自己处理跨包的 UTF-8）
+  buffer += decoder.decode(piece, { stream: true })
+
+  // ② 按分隔符切成若干段，最后一段可能不完整
+  const parts = buffer.split('\n\n')
+
+  // ③ ★ 关键：最后一段留着，其余才是完整事件
+  buffer = parts.pop() ?? ''
+
+  for (const part of parts) {
+    if (!part.startsWith('data: ')) continue
+    const payload = part.slice(6)
+    if (payload === '[DONE]') continue
+    const json = JSON.parse(payload) // 到这里才保证是完整 JSON
+    // …
+  }
+}
+```
+
+#### 为什么 `parts.pop()` 就等于「留下残片」
+
+`split('\n\n')` 会在**每一个** `\n\n` 处切开字符串。
+切完之后，**数组的最后一个元素，正好就是「最后一个 `\n\n` 之后的内容」** —— 也就是残片。
+
+`pop()` 把它取出来赋回 `buffer`，其余就是能确定完整的部分。
+
+> 一句话记住：**`split` 负责切，`pop` 负责留。**
+
+还有一处容易漏：`decoder.decode(piece, { stream: true })` 里的 **`{ stream: true }`**。
+它会记住被切断的多字节字符，等下一段补齐 —— 少了它，中文会变乱码。
+（这和缓冲区是**两个不同层面**的同一个问题：一个是字符被切断，一个是事件被切断。）
+
+## 检验一下
+
+<Quiz
+  n={1}
+  of={3}
+  q="SSE 的相邻两条事件之间，用什么分隔？"
+  options={['一个空行', '一个逗号', '一个分号']}
+  answer={0}
+  ok="对。也就是 \n\n。这条规则很简单，但所有解析 bug 都出在「切分时机」上，不是出在分隔符上。"
+  no="再想想。SSE 的事件分隔符是 \n\n（一个空行）。逗号和分号在这里都不是分隔符。"
+/>
+
+<Quiz
+  n={2}
+  of={3}
+  q="「TCP 是字节流」这句话意味着什么？"
+  options={['每次 read 恰好拿到一条完整事件', '一次 read 可能只拿到半条事件', 'read 的边界与事件边界一定对齐']}
+  answer={1}
+  ok="对。TCP 不保证任何消息边界。所以你必须自己缓冲，不能假设一次 read = 一条事件。"
+  no="再想想。TCP 只保证字节顺序，不保证边界对齐 —— 这正是要缓冲区的原因。"
+/>
+
+<Quiz
+  n={3}
+  of={3}
+  q="每一轮 read 处理完之后，buffer 里应该剩下什么？"
+  options={['什么都不剩，每轮清干净', '只留还没等到分隔符的残片', '全部留着，到最后一起清']}
+  answer={1}
+  ok="对。也就是 parts.pop()。残片会和下一轮 read 的内容拼成完整事件 —— 演示里 da + ta 拼回 data 就是这个过程。"
+  no="再想想。全清会把「还不确定」的那半条一起丢掉（静默丢数据）；全留则 buffer 无限增长，而且下一轮会把处理过的事件再处理一遍。"
+/>
+
+## 想再深入
+
+- [MDN · Server-Sent Events](https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events/Using_server-sent_events)
+  —— 协议本身的权威说明。SSE 是浏览器原生支持的，不只是「LLM 用的东西」。
+- [DeepSeek 官方 API 参考](https://api-docs.deepseek.com/api/create-chat-completion)
+  —— 看 `stream` 和 `stream_options` 两节。
+
+## 你的产出
+
+**文件已经建好了**，你只需要填 4 个 TODO：
+
+```bash
+cd ~/Desktop/Personal/agent-lab/lab
+code exercises/01-raw-api/stream.ts      # 或你惯用的编辑器
+```
+
+<Callout kind="do" title="怎么跑（文件开头也写了，这里再放一遍）">
+
+```bash
+# 终端 A：起 mock
+cd ~/Desktop/Personal/agent-lab/lab && npm run mock
+
+# 终端 B：跑你的实现（免费、无限次）
+cd ~/Desktop/Personal/agent-lab/lab
+node --env-file=.env.mock exercises/01-raw-api/stream.ts
+
+# 最后确认真实行为时调一次真 API
+node --env-file=.env exercises/01-raw-api/stream.ts
+```
+
+</Callout>
+
+### 文件里已经写好了什么
+
+| | |
+|---|---|
+| **怎么跑** | 两条命令 + 两个会浪费你半小时的坑 |
+| **怎么调试** | **「常见报错 → 病因」对照表**，看到 `Unexpected end of JSON input` 就知道是缓冲区没做对 |
+| **验收标准** | 4 个 TODO 要做什么，以及**自检脚本会检查什么** |
+
+### ★ 写完直接跑，它会告诉你过没过
+
+```text
+  ─────────── 自检 ───────────
+
+  ✅ 拼出的文本非空  —  长度 65
+  ✅ chunk 数 > 0  —  8 个片段
+  ✅ TTFT 已测量  —  59 ms
+  ✅ ★ 文本与期望值一字不差  —  完全一致
+  ✅ usage 拿到了（说明 stream_options 开对了）  —  hit=96
+
+  🎉 全部通过。
+```
+
+没过的话它会告诉你**先打印什么、按什么顺序排查**。
+
+### 要填的 4 件事
+
+1. **请求体**（5 个字段）
+2. **发请求** + 记 TTFT 的时间点
+3. **★ 核心：把字节流拼成事件** —— 就是这一节讲的东西
+4. **打印** TTFT / 总耗时 / chunk 数 / usage / 文本
+
+> 我在文件里**没有写缓冲区那段代码** —— 那是你要自己写的。
+> 但你刚在演示里看过它怎么工作，写不出来就回去点一遍。
+
+## 下一课是什么
+
+**第 0003 课 · 工具调用** —— 让模型不只是说话，而是**能做事**。
+你会看到 `tool_calls` 的完整结构，以及一个最容易写错的地方：
+`tool_call_id` 为什么必须**原样透传**，写错了服务端会怎么拒绝你。
+
+<Callout title="卡住了？">
+
+命令报错、某个字段看不懂、`parts.pop()` 为什么这么写 —— 任何问题直接问。
+
+**卡住不问才是真正的浪费。**
+
+</Callout>

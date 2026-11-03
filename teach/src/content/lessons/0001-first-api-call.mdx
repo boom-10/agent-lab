@@ -1,0 +1,176 @@
+<Eyebrow>第 0001 课 · 约 15 分钟 · 动手 1 次命令</Eyebrow>
+
+# 让模型说一句话，<br/>然后看懂它回了什么
+
+<Lede>你的 26 周路径从这一条命令开始。今天只做一件事：发一次请求，读懂回应。</Lede>
+
+## 为什么先学这个
+
+你的目标里有两条硬要求，都卡在这一步：
+
+- **「能独立设计、实现、评测、部署生产级 LLM Agent 应用」** ——
+  所有 Agent 框架（LangChain、DSH、任何东西）内部都在做同一件事：
+  *发一个 HTTP 请求，读一个 JSON*。把这层看透，框架对你就从「魔法」变成「取舍」。
+- **面试会问。** 核实的真题里有「Harness 和 LangChain 的本质区别」——
+  没自己调过原生 API 的人，这题只能背概念。
+
+而且这一步你有个现成的优势：**你写过前端。** `fetch`、JSON、异步流 ——
+这些对你是母语，只是还没指向新的端点。
+
+## 现在就做：发一次请求
+
+<Callout kind="do" title="复制粘贴，一行都别改">
+
+```bash
+# 1. 进实验区，加载 key
+cd ~/Desktop/Personal/agent-lab/lab
+set -a; . ./.env; set +a
+
+# 2. 发请求
+curl -s https://api.deepseek.com/chat/completions \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $DEEPSEEK_API_KEY" \
+  -d '{"model":"deepseek-flash",
+       "messages":[{"role":"user","content":"用一句话解释什么是 KV Cache"}],
+       "thinking":{"type":"disabled"}}' | python3 -m json.tool
+```
+
+</Callout>
+
+你会看到一段 JSON。**先别往下读**，自己扫一眼，猜猜每个字段干什么用。
+
+<Callout kind="warn" title="报错了怎么办">
+
+**401 / Authentication Fails** → key 没读出来。跑 `echo ${#DEEPSEEK_API_KEY}`，
+应该输出 `35`。输出 `0` 说明上面那行 `set -a; . ./.env; set +a` 没执行。
+
+**Connection error** → 网络或代理。先跑 `curl -sI https://api.deepseek.com` 看通不通。
+
+</Callout>
+
+## 你刚才拿到的东西，逐块拆开
+
+下面是**真实**的回应 —— 我替你跑过一次，字段一个没改：
+
+```json
+{
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "KV Cache 是一种在自回归生成时缓存历史 token 的 Key/Value 张量、避免每步重复计算的推理加速技术。"
+      },
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 10,
+    "completion_tokens": 32,
+    "total_tokens": 42,
+    "prompt_tokens_details": { "cached_tokens": 0 },
+    "prompt_cache_hit_tokens": 0,
+    "prompt_cache_miss_tokens": 10
+  }
+}
+```
+
+### 真正重要的只有三块
+
+| 字段 | 它回答什么问题 |
+| --- | --- |
+| `choices[0].message.content` | **答案是什么** —— 你要显示给用户的那句话 |
+| `choices[0].finish_reason` | **这轮是怎么结束的** —— 决定你的代码接下来干什么 |
+| `usage` | **花了多少** —— 你以后每次都要报的数字 |
+
+## 为什么 `finish_reason` 比你想的重要
+
+它**不是给模型看的，是给你看的**。你的代码要根据它决定下一步：
+
+| 值 | 你的代码该做什么 |
+| --- | --- |
+| `stop` | 正常说完了 → 收工，把 content 给用户 |
+| `length` | **被截断了** → 答案不完整。加大 max_tokens 或分段续写，*别当成功* |
+| `tool_calls` | 模型想调工具 → 去执行，把结果发回去**再来一轮** |
+| `content_filter` | 被内容策略拦了 → **别重试**，重试也没用 |
+| `insufficient_system_resource` | 服务端资源不足 → **这个可以重试** |
+| `aborted` | 被中断了 → 检查是不是你自己取消的 |
+
+<Callout title="和你未来的工作直接相关">
+
+你未来的用户会问：「为什么回答到一半停了？」
+答不出 `finish_reason` 的工程师，只能回「可能是网络问题吧」。
+
+</Callout>
+
+## 关于 `usage` 里的数字
+
+注意这条等式，它**永远成立**：
+
+```text
+prompt_tokens (10) = prompt_cache_hit_tokens (0) + prompt_cache_miss_tokens (10)
+```
+
+这次全是 **miss** —— 你第一次发这句话。`hit` 的部分便宜得多。
+差多少、怎么才能命中，是后面某一课的内容。
+今天只要记住：**这两个数字决定你的账单。**
+
+## 检验一下
+
+<Quiz
+  n={1}
+  of={3}
+  q="finish_reason 这个字段是给谁看的？"
+  options={['给模型自己判断要不要继续', '给你判断这轮是怎么结束的', '给计费系统算这次花多少钱']}
+  answer={1}
+  ok="对。它是控制流的开关 —— 你的代码根据它决定「收工 / 续写 / 调工具 / 重试」。"
+  no="再想想。模型看不到这个字段（它是模型产出之后才确定的）；计费看的是 usage。它是给你 —— 调用方 —— 看的。"
+/>
+
+<Quiz
+  n={2}
+  of={3}
+  q="如果把 finish_reason: length 当成成功，会发生什么？"
+  options={['用户会看到前后矛盾的重复答案', '请求会被服务端直接拒绝掉', '用户会看到一段被腰斩的回答']}
+  answer={2}
+  ok="对。这是最常见的线上事故：回答到一半没了，但没有任何报错。用户只能说「回答怎么怪怪的」。"
+  no="再想想。请求是成功的（HTTP 200），只是内容被 max_tokens 截断了。问题不在服务端，在你的处理逻辑。"
+/>
+
+<Quiz
+  n={3}
+  of={3}
+  q="某次请求 prompt_cache_hit_tokens 很大，说明什么？"
+  options={['你发的内容大部分命中缓存', '模型这次的回答变得很短', '你这次请求被服务端限流']}
+  answer={0}
+  ok="对。命中缓存的那部分便宜很多。所以「怎么让前缀稳定」是个省钱的真问题。"
+  no="再想想。hit/miss 描述的是【你发过去的内容】有没有被缓存 —— 和模型回答多长无关（那是 completion_tokens），也和限流无关。"
+/>
+
+## 想再深入，读这一份
+
+[DeepSeek 官方 API 参考 · Create Chat Completion](https://api-docs.deepseek.com/api/create-chat-completion)
+—— 所有字段的权威定义。今天只读 `choices` 和 `usage` 两节，其余留着以后查。
+
+<Callout kind="warn" title="一个已知陷阱">
+
+文档里 **`thinking` 默认是开启的**。开着的时候 `temperature` 无效、
+`max_tokens` 默认 64K、响应里会多出 `reasoning_content`。
+
+今天我们在请求里显式关了它 —— **故意的**，让变量少一个。
+
+</Callout>
+
+## 下一课是什么
+
+**第 0002 课 · 流式：为什么回答是一个字一个字蹦出来的** ——
+同一句话，用 `stream: true` 再发一次。你会看到 SSE 协议，
+以及一个大部分人第一次写都会踩的坑：*它会静默丢数据，不报错。*
+
+<Callout title="在那之前，先确认今天的成果">
+
+你应该已经看到了一段真实 JSON，并且能指着 `finish_reason` 说出它干什么用。
+
+如果还没有 —— **那就还没到下一课**，回头把上面的命令跑通。
+
+</Callout>

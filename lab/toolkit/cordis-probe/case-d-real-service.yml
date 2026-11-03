@@ -1,0 +1,2 @@
+- name: '@deepseek-ai/cordis-plugin-timer'
+- name: './plugins/p-probe-timer.js'

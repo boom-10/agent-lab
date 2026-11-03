@@ -1,0 +1,297 @@
+<Eyebrow>第 0003 节 · 约 35 分钟 · 动手 2 次</Eyebrow>
+
+# 工具调用：从「会说话」<br/>到「能做事」
+
+<Lede>前两节模型只能输出文本。这一节它第一次能<b>要求做事</b> —— Agent 真正的起点就在这里。</Lede>
+
+## 为什么这一节是分水岭
+
+前两节你做的所有事，本质都是「问一句话，拿一段文本」。
+
+**工具调用改变了这个关系的性质**：模型不再只是回答你，它会说
+「我需要调用 `get_weather`，参数是 `{"city":"杭州"}`」—— 然后**停下来等你执行**。
+
+这个「停下来等你」是整个 Agent 的机制基础。后面所有的循环、规划、多智能体，
+都建在它上面。
+
+## 动手：让模型查天气
+
+<Callout kind="do" title="复制粘贴">
+
+```bash
+cd ~/Desktop/Personal/agent-lab/lab
+set -a; . ./.env; set +a
+
+curl -s https://api.deepseek.com/chat/completions \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $DEEPSEEK_API_KEY" \
+  -d '{
+    "model": "deepseek-flash",
+    "messages": [{"role":"user","content":"杭州现在天气怎么样？"}],
+    "thinking": {"type":"disabled"},
+    "tools": [{
+      "type": "function",
+      "function": {
+        "name": "get_weather",
+        "description": "查询某个城市的当前天气",
+        "parameters": {
+          "type": "object",
+          "properties": { "city": { "type": "string", "description": "城市名，例如「杭州」" } },
+          "required": ["city"]
+        }
+      }
+    }]
+  }' | python3 -m json.tool
+```
+
+</Callout>
+
+### 真实的响应长这样
+
+```json
+{
+  "choices": [{
+    "finish_reason": "tool_calls",
+    "message": {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [{
+        "index": 0,
+        "id": "call_00_cSILm8q7Om0JwmpldU8X3988",
+        "type": "function",
+        "function": {
+          "name": "get_weather",
+          "arguments": "{\"city\": \"杭州\"}"
+        }
+      }]
+    }
+  }],
+  "usage": { "prompt_tokens": 281, "..." : "..." }
+}
+```
+
+## 四个必须注意的点
+
+### ① `arguments` 是**字符串**，不是对象
+
+```text
+"arguments": "{\"city\": \"杭州\"}"        ← 字符串！要自己 JSON.parse
+```
+
+不是：
+
+```text
+"arguments": { "city": "杭州" }             ← 不是这样
+```
+
+**为什么这么设计？** 因为流式下这个字符串是**分片下发**的，模型一片一片往外吐：
+
+```text
+{"na   →   me":   →   "Ada"   →   }
+```
+
+服务端只能给你拼接后的字符串。所以你的代码里必然有一步 `JSON.parse`。
+
+### ② `content` 可能是**空字符串**
+
+模型决定调工具时，`content` 是 `""`，不是 `null`。
+你渲染的时候要注意别给用户显示一个空气泡。
+
+### ③ `prompt_tokens` 从 10 变成了 281
+
+因为你刚把**整个工具定义**发过去了。工具描述本身要花 token ——
+这是「工具不是免费的」第一次直观体现。工具多了，这笔开销会很可观。
+
+### ④ 还差一步：把结果喂回去
+
+模型只是**要求**调用，它不会自己执行。你得：
+
+1. 执行工具
+2. 把结果发回去，**再来一轮**
+
+## 完整的往返
+
+<Callout kind="do" title="第二轮：把结果回填">
+
+第一轮的 `assistant` 消息要**原样塞回去**（连同 `tool_calls`），
+然后追加一条 `role: "tool"` 的消息：
+
+```json
+[
+  { "role": "user", "content": "杭州现在天气怎么样？" },
+  {
+    "role": "assistant",
+    "content": "",
+    "tool_calls": [{ "id": "call_00_cSILm...", "type": "function", "function": { "..." : "..." } }]
+  },
+  {
+    "role": "tool",
+    "tool_call_id": "call_00_cSILm...",
+    "content": "{\"city\":\"杭州\",\"temp\":18,\"condition\":\"多云\"}"
+  }
+]
+```
+
+第二轮回来：
+
+```text
+finish_reason : stop
+content       : 杭州现在多云，气温约 18°C，体感比较舒适，出门带件薄外套就够啦。
+usage         : hit=128  miss=216        ← 注意这里！
+```
+
+</Callout>
+
+### `hit=128` 是什么意思
+
+第二轮**缓存命中了 128 个 token**。因为第二轮和第一轮共享同一段前缀
+（system + 第一条用户消息 + 工具定义）—— **同样的前缀不用重新算**。
+
+这是「前缀稳定能省钱」的第一次真实体现，下一节会专门做实验。
+
+## ⚠️ 最容易写错的一处：`tool_call_id`
+
+服务端**强制校验**这个 id。它不是建议，是硬约束。
+
+我替你探过三种写错的报错原文（这类错误是 400，**不消耗 token**）：
+
+<Callout kind="warn" title="写错 tool_call_id 会怎样">
+
+**① `role:"tool"` 但前面没有 `tool_calls`**
+
+```text
+HTTP 400
+Messages with role 'tool' must be a response to a preceding message with 'tool_calls'
+```
+
+**② `tool_call_id` 和 `tool_calls[].id` 不匹配**
+
+```text
+HTTP 400
+An assistant message with 'tool_calls' must be followed by tool messages responding
+to each 'tool_call_id', The following tool_call_ids did not have response messages: call_WRONG_id
+```
+
+**③ 匹配正确** → HTTP 200
+
+</Callout>
+
+**结论**：`tool_call_id` 必须从模型返回的 `tool_calls[].id` **原样透传**，
+**不能自己重新生成**。
+
+这条看起来是废话，但它是 Agent 实现里最高频的错误 ——
+尤其是当你的工具要并发执行、结果异步回来的时候，
+「哪个结果对应哪个调用」就靠这个 id 串起来。
+
+<Callout kind="good" title="本地练，免费">
+
+`npm run mock` 复刻了**一模一样**的 400 校验。
+你可以把 id 故意写错，看它返回和真 API 相同的报错：
+
+```bash
+cd ~/Desktop/Personal/agent-lab/lab
+npm run mock      # 终端 A
+# 终端 B 跑你自己的实现，故意写错 id
+```
+
+</Callout>
+
+## 检验一下
+
+<Quiz
+  n={1}
+  of={3}
+  q="响应里 arguments 字段的数据类型是什么？"
+  options={['一个字符串，需要自己解析', '一个对象，可以直接取字段', '一个数组，按顺序拼接']}
+  answer={0}
+  ok="对。它是字符串，因为流式下这个值是分片下发的，服务端只能给你拼好的文本。所以必然有一步 JSON.parse。"
+  no="再想想。如果它是对象就不用解析了 —— 但流式分片下发决定了它只能是字符串。"
+/>
+
+<Quiz
+  n={2}
+  of={3}
+  q="模型返回 tool_calls 之后，谁会真正执行这个工具？"
+  options={['模型自己会在服务端执行', '服务端会自动调用并回填', '你的代码执行后再发回去']}
+  answer={2}
+  ok="对。模型只是「要求」调用，然后停下来等你。执行是你的责任，结果也是你回填的 —— 这个「来回」就是 Agent Loop 的雏形。"
+  no="再想想。模型的输出只是一段文本，它没有任何执行能力。执行发生在你的进程里。"
+/>
+
+<Quiz
+  n={3}
+  of={3}
+  q="发 role:tool 的消息时，tool_call_id 应该怎么取？"
+  options={['自己生成一个唯一 id 即可', '原样用 tool_calls 里的 id', '用发起请求时的时间戳']}
+  answer={1}
+  ok="对。服务端强制校验这个匹配关系，写错直接 400。并发执行工具时，这个 id 就是你配对「哪个结果对应哪个调用」的唯一依据。"
+  no="再想想。服务端会校验它和前面 assistant 消息里的 tool_calls[].id 是否对应 —— 自己生成的 id 一定对不上。"
+/>
+
+## 你的产出
+
+**文件已经建好了**，你只需要填 5 个 TODO：
+
+```bash
+cd ~/Desktop/Personal/agent-lab/lab
+code exercises/01-raw-api/tools.ts
+```
+
+<Callout kind="do" title="怎么跑">
+
+```bash
+# 终端 A：起 mock
+cd ~/Desktop/Personal/agent-lab/lab && npm run mock
+
+# 终端 B
+cd ~/Desktop/Personal/agent-lab/lab
+node --env-file=.env.mock exercises/01-raw-api/tools.ts
+```
+
+</Callout>
+
+### 这一节的自检会验什么
+
+| 检查 | 说明 |
+|---|---|
+| 第一轮 `finish_reason` 是 `tool_calls` | 模型确实决定调工具了 |
+| `arguments` 被解析成了对象 | 不是字符串 —— 漏了 `JSON.parse` 会在这里挂 |
+| 工具真的被调用了 | 返回值非空（别 `return 'ok'` 糊弄） |
+| 第二轮拿到最终回答 | 整个往返跑通了 |
+
+### ★ 出错时它会直接告诉你病因
+
+我在文件里挂了一个诊断处理器。你把 `tool_call_id` 写错，看到的是这个：
+
+```text
+  ❌ 请求失败
+
+      An assistant message with 'tool_calls' must be followed by tool messages
+      responding to each 'tool_call_id', The following tool_call_ids did not
+      have response messages: call_WRONG
+
+  💡 病因：tool_call_id 和上一轮 tool_calls[].id 对不上。
+     ★ 必须原样透传 call.id，不能自己重新生成。
+```
+
+**不是一堆堆栈，是病因。** 而且这个诊断认得出三种最常见的错：id 对不上、忘了塞回 assistant 消息、key 没读到。
+
+### mock 现在支持**你自己的工具**
+
+我改了 mock：它不再写死返回 `greet`，而是**用你声明的第一个工具**，
+`arguments` 按你 schema 里 `required` 的字段生成占位值。
+
+所以你定义 `count_chars`、`read_file`、`get_time`…… 都能跑通。
+
+## 下一节
+
+**第 0004 节 · 读懂账单** —— 你会做一个真实的缓存实验，
+看到 `hit` 和 `miss` 怎么决定你的成本，以及为什么「前缀稳定」是个工程问题。
+
+<Callout title="卡住了？">
+
+`arguments` 解析失败、id 对不上、第二轮报 400 —— 任何问题直接问。
+
+**卡住不问才是真正的浪费。**
+
+</Callout>

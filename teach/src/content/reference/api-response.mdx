@@ -1,0 +1,97 @@
+<Eyebrow>速查卡 · 打印友好</Eyebrow>
+
+# Chat Completions 响应结构
+
+<Lede>压缩后的要点。忘了什么就回来看这一页。</Lede>
+
+## 请求三要素
+
+```text
+POST  {BASE}/chat/completions
+Content-Type:  application/json
+Authorization: Bearer {API_KEY}          # key 一定以 sk- 开头
+
+{
+  "model":    "deepseek-flash",
+  "messages": [{"role":"user","content":"…"}],
+  "thinking": {"type":"disabled"}        # ★ 默认是开启的，会带来一堆副作用
+}
+```
+
+## 响应顶层
+
+| 字段 | 含义 |
+| --- | --- |
+| `id` | 本次请求的唯一 id。报障时给服务端看这个。 |
+| `object` | `chat.completion`（非流式）/ `chat.completion.chunk`（流式） |
+| `created` | Unix 秒 |
+| `model` | 实际服务的模型，可能和你请求的不同 |
+| `choices` | 应答数组，**通常只有 1 个** —— 你几乎总是取 `[0]` |
+| `usage` | token 统计。**流式下必须显式要才有** |
+| `system_fingerprint` | 服务端配置指纹。变了说明后端配置动过 |
+
+## choices[0]
+
+| 字段 | 含义 |
+| --- | --- |
+| `message.role` | 总是 `assistant` |
+| `message.content` | **答案**。调工具时可能是 `null` |
+| `message.reasoning_content` | 思考过程。**只在 `thinking` 开启时出现**，要单独渲染 |
+| `message.tool_calls` | 模型想调的工具。`function.arguments` 是**字符串**，要 `JSON.parse` |
+| `finish_reason` | 这轮为什么结束 |
+
+## finish_reason 全表
+
+| 值 | 含义 | 你的代码该做什么 |
+| --- | --- | --- |
+| `stop` | 模型正常说完了 | 收工，渲染 content |
+| `length` | 撞到 `max_tokens` 上限被截断 | **答案不完整**：加大上限或分段续写，别当成功 |
+| `tool_calls` | 模型要求调工具 | 执行工具 → 以 `role:"tool"` 回填 → **再来一轮** |
+| `content_filter` | 被内容策略拦截 | **不要重试**，重试还是被拦 |
+| `insufficient_system_resource` | 服务端资源不足 | **可以重试**（退避后再试） |
+| `aborted` | 被中断 | 检查是不是你自己取消的 |
+
+## usage 字段
+
+```text
+prompt_tokens       = prompt_cache_hit_tokens + prompt_cache_miss_tokens   # 恒等式
+completion_tokens   # 模型生成的部分（含 reasoning_tokens）
+total_tokens        = prompt_tokens + completion_tokens
+
+prompt_tokens_details.cached_tokens          # 与 hit 同义
+completion_tokens_details.reasoning_tokens   # 思考消耗；开启 thinking 时才有
+```
+
+<Callout kind="warn" title="流式下拿 usage 的坑">
+
+`stream: true` 时**默认不带 usage**。必须显式加：
+
+```json
+"stream_options": { "include_usage": true }
+```
+
+开了之后**每个 chunk 都带 `usage` 字段**，但只有**最后一个是非 null**。
+没有单独的 usage-only chunk —— 统计搭在最后一个内容 chunk 上。
+
+</Callout>
+
+## 已知陷阱（实测）
+
+| 陷阱 | 后果 |
+| --- | --- |
+| `thinking` 默认**开启** | `temperature` 无效；`max_tokens` 默认 64K；响应多 `reasoning_content` |
+| `stream_options.include_usage` 默认不开 | 流式响应**完全拿不到 token 统计** |
+| `tool_call_id` 与 `tool_calls[].id` 不匹配 | **HTTP 400**，服务端强制校验。必须原样透传 |
+| `role:"tool"` 但前面没有 `tool_calls` | **HTTP 400**：`Messages with role 'tool' must be a response to a preceding message with 'tool_calls'` |
+
+## 成本速算
+
+```text
+# 低峰价，$ / 1M token。高峰（北京时间 08:30–00:30）翻倍。
+flash:  命中 $0.003   未命中 $0.15   输出 $0.60
+v4-pro: 命中 $0.022   未命中 $0.66   输出 $1.98
+
+成本 = hit/1e6 × 命中价 + miss/1e6 × 未命中价 + completion/1e6 × 输出价
+```
+
+养成习惯：**每次调用都算一遍量级**。面试会问「一天一百万次要多少钱」。
