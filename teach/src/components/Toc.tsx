@@ -14,33 +14,58 @@ export function Toc() {
   const [heads, setHeads] = useState<Head[]>([])
   const [active, setActive] = useState<string | null>(null)
 
-  // 路由变化后重新扫标题
+  // 扫标题。
+  //
+  // ★ 这里**不能只依赖 [pathname]**，那有过一个很隐蔽的 bug：
+  //   TanStack Router 的客户端导航里，pathname 先更新（urgent），
+  //   路由内容后更新（transition）。所以 effect 跑的时候 DOM 里还是
+  //   【上一页】的标题 —— 表现是右侧目录永远慢一整页，
+  //   而整页刷新（硬导航）却是对的，因为那时 DOM 已经是新的了。
+  //
+  //   修法：除了 pathname，再挂一个 MutationObserver 盯住正文容器。
+  //   内容一换就重扫。这样不管框架什么时候 commit，都能跟上。
   useEffect(() => {
-    let cancelled = false
+    let stopped = false
+    let raf = 0
+
     const collect = () => {
       const root = document.querySelector('.prose')
-      if (!root) return false
+      if (!root) return
       const found = [...root.querySelectorAll<HTMLElement>('h2[id], h3[id]')].map((h) => ({
         id: h.id,
         text: h.textContent ?? '',
         level: h.tagName === 'H3' ? 3 : 2,
       }))
-      if (!cancelled) setHeads(found)
-      return true
+      if (stopped) return
+      setHeads((prev) => {
+        // 内容没变就别 setState，否则 observer 会把自己触发成死循环
+        if (prev.length === found.length && prev.every((p, i) => p.id === found[i]!.id)) return prev
+        return found
+      })
     }
-    if (!collect()) {
-      // 首帧可能还没挂上，等一拍
-      const t = setTimeout(collect, 60)
-      return () => {
-        cancelled = true
-        clearTimeout(t)
-      }
+
+    collect() // 先来一次（硬导航时 DOM 已经就绪）
+
+    // 观察 main（它在路由切换间是常驻的，.prose 本身会被换掉）
+    const target = document.querySelector('main.doc-main') ?? document.body
+    const obs = new MutationObserver(() => {
+      cancelAnimationFrame(raf)
+      raf = requestAnimationFrame(collect)
+    })
+    obs.observe(target, { childList: true, subtree: true })
+
+    return () => {
+      stopped = true
+      obs.disconnect()
+      cancelAnimationFrame(raf)
     }
   }, [pathname])
 
   // 滚动高亮：以视口上方 1/3 处为「当前读到哪」的判据
   useEffect(() => {
     if (!heads.length) return
+    // 换了页先把高亮清掉，否则会停在上一页的 id 上（那个 id 已经不存在了）
+    setActive(null)
     const onScroll = () => {
       const line = window.scrollY + window.innerHeight / 3
       let cur: string | null = null
