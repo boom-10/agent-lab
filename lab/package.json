@@ -26,7 +26,8 @@
     "plugin:dump": "dsh --profile web --patch ./starters/dsh-plugin-starter/cordis.local.yml --dump-config",
     "plugin:web": "dsh web --patch ./starters/dsh-plugin-starter/cordis.local.yml",
     "dsh:help": "dsh --help",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "doctor": "node scripts/doctor.mjs"
   },
   "devDependencies": {
     "@deepseek-ai/dsh": "0.2.1-rc.5",

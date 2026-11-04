@@ -76,6 +76,7 @@ npm run ex:stream      # 终端 B：做第 0002 节的练习
 | 命令 | 作用 |
 | --- | --- |
 | `npm run check` | 环境自检（只读，不花钱） |
+| `npm run doctor` | **出问题时先跑这个** —— 从你当前 shell 把整条链路走一遍 |
 | `npm run mock` | 本地模拟 API 服务器 —— **复刻了真 API 的校验和边界情况** |
 | `npm run ex:stream` / `ex:tools` | 两个练习（自带自检，写完直接跑） |
 | `npm run demo:naive` | 反面教材：看朴素 SSE 解析怎么**静默**丢掉 60% 内容 |
@@ -99,6 +100,14 @@ starters/    ← 脚手架
 | `toolkit/cordis-probe/` | 插件机制探针台（7 个静默失败用例） |
 | `starters/dsh-plugin-starter/` | DSH 插件脚手架 |
 | `run.mjs` | 统一启动器：查 Node 版本 + 加载 .env + 判断 mock/真 API |
+
+#### ⚠️ 不要用 `node --env-file=...`
+
+`--env-file` **不覆盖** shell 里已有的环境变量。课程里的 curl 示例用了
+`set -a; . ./.env; set +a`，那会把真 API 的地址和 key 导进当前 shell ——
+之后 `--env-file=.env.mock` 会被**静默忽略**，请求打到真 API 上去。
+
+`run.mjs` 是显式赋值的，不受影响。所以统一用 `npm run ex:*`。
 
 #### 关于 `run.mjs`
 

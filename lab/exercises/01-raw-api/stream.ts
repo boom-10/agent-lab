@@ -30,7 +30,13 @@
  *   ② 加载 .env（不用 --env-file，也就没有「当前目录不对」的坑）
  *   ③ 自动判断该连 mock 还是真 API（mock 在跑就用 mock）
 
- * 想直接用 node 也行，但要自己保证 Node ≥22.18 且带对 --env-file。
+ * ⚠️ **不要用 `node --env-file=.env.mock xxx.ts`。**
+ *    `--env-file` 不覆盖 shell 里已有的变量。课程里让你跑过
+ *    `set -a; . ./.env; set +a`，那会把【真 API 的地址和 key】导进这个 shell ——
+ *    之后 --env-file=.env.mock 就盖不住它们，请求会打到真 API 上去。
+ *    症状是「模型没返回 tool_calls」之类看起来莫名其妙的错。
+ *    run.mjs 是显式赋值的，不受这个影响。
+ *    拿不准就跑 `npm run doctor`。
  *
  *
  * ────────────────────────────────────────────────────────────────────────────

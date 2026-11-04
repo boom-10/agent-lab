@@ -286,12 +286,35 @@ code exercises/01-raw-api/stream.ts      # 或你惯用的编辑器
 cd ~/Desktop/Personal/agent-lab/lab && npm run mock
 
 # 终端 B：跑你的实现（免费、无限次）
-cd ~/Desktop/Personal/agent-lab/lab
-node --env-file=.env.mock exercises/01-raw-api/stream.ts
+npm run ex:stream:mock
 
-# 最后确认真实行为时调一次真 API
-node --env-file=.env exercises/01-raw-api/stream.ts
+# 最后确认真实行为时调一次真 API（先停掉 mock）
+npm run ex:stream
 ```
+
+<Callout kind="warn" title="⚠️ 别用 node --env-file=...">
+
+`--env-file` **不覆盖** shell 里已经存在的变量。
+
+课程前面让你跑过 `set -a; . ./.env; set +a`（为了 curl 示例）——
+那会把**真 API 的地址和 key 导进当前 shell**。之后你再跑
+`node --env-file=.env.mock xxx.ts`，`.env.mock` 会被**静默忽略**，
+请求打到真 API 上去。
+
+**症状很难猜**：比如「模型没返回 tool_calls」之类的错，
+看起来像代码问题，其实是环境问题。
+
+统一用 `run.mjs`（它显式赋值，不受影响）：
+
+```bash
+npm run ex:stream:mock     # 或
+node run.mjs exercises/01-raw-api/stream.ts --mock
+```
+
+拿不准就跑 **`npm run doctor`** —— 它会把这个情况直接指出来。
+
+</Callout>
+
 
 </Callout>
 

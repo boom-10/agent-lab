@@ -126,9 +126,15 @@ node --version      # v22.23.2
 
 ```bash
 cd ~/Desktop/Personal/agent-lab/lab
-npm run mock                                    # 终端 A
-node --env-file=.env.mock exercises/01-raw-api/stream.ts   # 终端 B
+npm run mock              # 终端 A
+npm run ex:stream:mock    # 终端 B
 ```
+
+> ⚠️ **不要用 `node --env-file=.env.mock xxx.ts`。**
+> `--env-file` **不覆盖** shell 里已有的变量。如果你跑过课程里的
+> `set -a; . ./.env; set +a`，真 API 的地址和 key 已经在 shell 里了，
+> `.env.mock` 会被静默忽略，请求打到真 API 上去。
+> 拿不准就跑 `npm run doctor`。
 
 全绿就过了。没过它会告诉你**先打印什么、按什么顺序排查**。
 
