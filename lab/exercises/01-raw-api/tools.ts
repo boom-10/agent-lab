@@ -29,6 +29,18 @@
  *
  *
  * ────────────────────────────────────────────────────────────────────────────
+ *  开发中怎么调试（重要）
+ * ────────────────────────────────────────────────────────────────────────────
+ *
+ * **直接在 main() 里 console.log 就行。** 那是你自己的代码，随时可以加。
+ *
+ * 你会看到自己的输出，后面跟一句「ℹ️ 自检已跳过」——
+ * **那不是报错**，只是因为 main() 还没 return 结果，自检没东西可检。
+ *
+ * 为什么这么设计：自检读的是 **main() 的返回值**，不是你打印了什么。
+ * 这样它才能判断「你有没有真的拼出那段文本」，而不是「你有没有跑起来」。
+ *
+ * ────────────────────────────────────────────────────────────────────────────
  *  怎么调试
  * ────────────────────────────────────────────────────────────────────────────
  *
@@ -76,103 +88,113 @@
 //  0 · 配置与前置检查（已经写好，不用改）
 // ══════════════════════════════════════════════════════════════════════════
 
-const BASE = process.env.DEEPSEEK_BASE_URL ?? 'https://api.deepseek.com'
-const KEY = process.env.DEEPSEEK_API_KEY
+const BASE = process.env.DEEPSEEK_BASE_URL ?? "https://api.deepseek.com";
+const KEY = process.env.DEEPSEEK_API_KEY;
 
 if (!KEY) {
   console.error(
-    '\n  ❌ 没读到 DEEPSEEK_API_KEY\n\n' +
-      '     八成是忘了 --env-file。正确写法：\n' +
-      '       mock:  node --env-file=.env.mock exercises/01-raw-api/tools.ts\n' +
-      '       真 API: node --env-file=.env      exercises/01-raw-api/tools.ts\n\n' +
-      '     而且必须在 lab/ 目录下跑（--env-file 是相对当前目录的）。\n',
-  )
-  process.exit(1)
+    "\n  ❌ 没读到 DEEPSEEK_API_KEY\n\n" +
+      "     八成是忘了 --env-file。正确写法：\n" +
+      "       mock:  node --env-file=.env.mock exercises/01-raw-api/tools.ts\n" +
+      "       真 API: node --env-file=.env      exercises/01-raw-api/tools.ts\n\n" +
+      "     而且必须在 lab/ 目录下跑（--env-file 是相对当前目录的）。\n",
+  );
+  process.exit(1);
 }
 
 // ── 出错时给出可读诊断，而不是甩一堆堆栈 ──
 // 注意：顶层 await 抛错在 ESM 里走的是 uncaughtException，不是 unhandledRejection，
 // 所以两个都要挂（实测过）。
 const diagnose = (e: unknown): never => {
-  const err = e as { message?: string; raw?: string }
-  console.error('\n  ❌ 请求失败\n')
+  const err = e as { message?: string; raw?: string };
+  console.error("\n  ❌ 请求失败\n");
 
   if (!err?.raw) {
-    console.error('     ', err?.message ?? String(e), '\n')
-    process.exit(1)
+    console.error("     ", err?.message ?? String(e), "\n");
+    process.exit(1);
   }
 
-  let msg = err.raw
+  let msg = err.raw;
   try {
-    msg = (JSON.parse(err.raw) as { error?: { message?: string } }).error?.message ?? err.raw
+    msg =
+      (JSON.parse(err.raw) as { error?: { message?: string } }).error
+        ?.message ?? err.raw;
   } catch {
     /* 不是 JSON 就用原文 */
   }
 
-  console.error('     ', msg, '\n')
+  console.error("     ", msg, "\n");
 
   if (/role 'tool' must be a response to a preceding/i.test(msg)) {
-    console.error("  💡 病因：你发的 role:'tool' 消息，前面没有对应的 tool_calls。")
-    console.error('     两个常见原因：')
-    console.error('       1. 忘了把第一轮的 assistant 消息（连同 tool_calls）塞回 messages')
-    console.error('          → messages.push(msg1)')
-    console.error('       2. tool_call_id 是自己编的，不是从 call.id 原样透传的\n')
+    console.error(
+      "  💡 病因：你发的 role:'tool' 消息，前面没有对应的 tool_calls。",
+    );
+    console.error("     两个常见原因：");
+    console.error(
+      "       1. 忘了把第一轮的 assistant 消息（连同 tool_calls）塞回 messages",
+    );
+    console.error("          → messages.push(msg1)");
+    console.error(
+      "       2. tool_call_id 是自己编的，不是从 call.id 原样透传的\n",
+    );
   } else if (/did not have response messages/i.test(msg)) {
-    console.error('  💡 病因：tool_call_id 和上一轮 tool_calls[].id 对不上。')
-    console.error('     ★ 必须原样透传 call.id，不能自己重新生成。\n')
+    console.error("  💡 病因：tool_call_id 和上一轮 tool_calls[].id 对不上。");
+    console.error("     ★ 必须原样透传 call.id，不能自己重新生成。\n");
   } else if (/401|Authentication Fails/i.test(msg)) {
-    console.error('  💡 病因：KEY 没读到或无效。检查 --env-file，见文件开头的坑 ①。\n')
+    console.error(
+      "  💡 病因：KEY 没读到或无效。检查 --env-file，见文件开头的坑 ①。\n",
+    );
   }
-  process.exit(1)
-}
-process.on('uncaughtException', diagnose)
-process.on('unhandledRejection', diagnose)
+  process.exit(1);
+};
+process.on("uncaughtException", diagnose);
+process.on("unhandledRejection", diagnose);
 
 // ══════════════════════════════════════════════════════════════════════════
 //  类型定义（已经写好，不用改）
 // ══════════════════════════════════════════════════════════════════════════
 
 type ToolDef = {
-  type: 'function'
+  type: "function";
   function: {
-    name: string
-    description: string
+    name: string;
+    description: string;
     parameters: {
-      type: 'object'
-      properties: Record<string, { type: string; description?: string }>
-      required?: string[]
-    }
-  }
-}
+      type: "object";
+      properties: Record<string, { type: string; description?: string }>;
+      required?: string[];
+    };
+  };
+};
 
-type ChatMessage = Record<string, unknown>
+type ChatMessage = Record<string, unknown>;
 
 type ToolCall = {
-  id: string
-  type: 'function'
-  function: { name: string; arguments: string }
-}
+  id: string;
+  type: "function";
+  function: { name: string; arguments: string };
+};
 
 type ChatResponse = {
   choices: Array<{
-    finish_reason: string
-    message: { role: string; content: string | null; tool_calls?: ToolCall[] }
-  }>
-}
+    finish_reason: string;
+    message: { role: string; content: string | null; tool_calls?: ToolCall[] };
+  }>;
+};
 
 /** main() 要返回这些东西 —— TypeScript 会拿它检查你 */
 type ToolResult = {
   /** 模型选了哪个工具 */
-  toolName: string
+  toolName: string;
   /** arguments 解析后的对象 */
-  args: Record<string, unknown>
+  args: Record<string, unknown>;
   /** 你执行工具得到的返回值（字符串） */
-  toolReturn: string
+  toolReturn: string;
   /** 第一轮的 finish_reason，应该是 'tool_calls' */
-  finish1: string
+  finish1: string;
   /** 第二轮的最终回答 */
-  finalText: string
-}
+  finalText: string;
+};
 
 // ══════════════════════════════════════════════════════════════════════════
 //  发请求的小工具（已经写好，不用改）
@@ -180,23 +202,29 @@ type ToolResult = {
 //
 // ★ 它失败时会先打原始 body 再抛 —— 这是排查的铁律：不要猜，看原文。
 
-async function chat(messages: ChatMessage[], tools: ToolDef[]): Promise<ChatResponse> {
+async function chat(
+  messages: ChatMessage[],
+  tools: ToolDef[],
+): Promise<ChatResponse> {
   const res = await fetch(`${BASE}/chat/completions`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${KEY}` },
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${KEY}`,
+    },
     body: JSON.stringify({
-      model: 'deepseek-flash',
+      model: "deepseek-flash",
       messages,
       tools,
-      thinking: { type: 'disabled' },
+      thinking: { type: "disabled" },
       max_tokens: 300,
     }),
-  })
-  const raw = await res.text()
+  });
+  const raw = await res.text();
   if (!res.ok) {
-    throw Object.assign(new Error(`HTTP ${res.status}`), { raw })
+    throw Object.assign(new Error(`HTTP ${res.status}`), { raw });
   }
-  return JSON.parse(raw) as ChatResponse
+  return JSON.parse(raw) as ChatResponse;
 }
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -221,19 +249,34 @@ async function main(): Promise<ToolResult | undefined> {
   //    这是可以拿来做实验的（后面讲「工具选对率」时会用到）。
   //
   // const tools: ToolDef[] = [ ... ]
-
+  const tools: ToolDef[] = [
+    {
+      type: "function",
+      function: {
+        name: "count_chars",
+        description: "统计一段文本的字符数",
+        parameters: {
+          type: "object",
+          properties: {
+            text: { type: "string", description: "要统计的字符串" },
+          },
+          required: ["text"],
+        },
+      },
+    },
+  ];
   // ────────────────────────────────────────────────────────────────────────
   //  TODO 2 · 第一轮：让模型决定调不调工具
   // ────────────────────────────────────────────────────────────────────────
   //
   // 发一条 user 消息（内容要能让模型觉得「这件事需要调工具」），带上 tools。
   //
-  // const messages: ChatMessage[] = [{ role: 'user', content: '...' }]
-  // const data1 = await chat(messages, tools)
-  // const msg1 = data1.choices[0]!.message
-  // const call = msg1.tool_calls?.[0]!
-  // const finish1 = data1.choices[0]!.finish_reason
-  //
+  const messages: ChatMessage[] = [{ role: "user", content: "..." }];
+  const data1 = await chat(messages, tools);
+  const msg1 = data1.choices[0]!.message;
+  const call = msg1.tool_calls?.[0]!;
+  const finish1 = data1.choices[0]!.finish_reason;
+
   // ⚠️ 如果 finish_reason 不是 'tool_calls'，说明模型认为**不需要**调工具。
   //    这时先改你的 user 消息，让它更像一个真的需要查数据的问题。
 
@@ -310,54 +353,89 @@ async function main(): Promise<ToolResult | undefined> {
   //
   // return { toolName: call.function.name, args, toolReturn, finish1, finalText }
 
-  return undefined // ← 写完就删掉这一行
+  return undefined; // ← 写完就删掉这一行
 }
 
 // ══════════════════════════════════════════════════════════════════════════
 //  自检 —— 不用改，也不用删
 // ══════════════════════════════════════════════════════════════════════════
 
-const result = await main()
+const result = await main();
 
 if (!result) {
-  console.log('\n  ⏳ 还没写完 —— main() 还返回 undefined。')
-  console.log('     填完 5 个 TODO，把最后一行改成 return { ... }，再跑一次。\n')
+  // 学习者常常误以为这是报错。它不是 ——
+  // 他自己的 console.log 已经打完了，这里只是说「自检没东西可检」。
+  console.log("")
+  console.log("  ℹ️  自检已跳过（main() 还没 return 结果）—— 这不是报错。")
+  console.log("     你上面的输出都是正常的。")
+  console.log("     写完 5 个 TODO 并把最后一行改成 return { ... }，自检就会跑。")
+  console.log("")
   process.exit(0)
 }
 
-type CheckResult = { name: string; pass: boolean; detail?: string }
-const results: CheckResult[] = []
+type CheckResult = { name: string; pass: boolean; detail?: string };
+const results: CheckResult[] = [];
 const check = (name: string, pass: boolean, detail?: string): void => {
-  results.push({ name, pass, detail })
-}
+  results.push({ name, pass, detail });
+};
 
-check('第一轮 finish_reason 是 tool_calls', result.finish1 === 'tool_calls', `实际是 ${JSON.stringify(result.finish1)}`)
-check('模型选择调用工具', result.toolName.length > 0, result.toolName || '（没拿到）')
 check(
-  'arguments 被解析成了对象',
-  typeof result.args === 'object' && result.args !== null && !Array.isArray(result.args),
-  typeof result.args === 'string' ? '❌ 还是字符串 —— 忘了 JSON.parse' : JSON.stringify(result.args),
-)
-check('工具真的被调用了（返回值非空）', result.toolReturn.length > 0, `${result.toolReturn.length} 字符`)
-check('第二轮拿到最终回答', result.finalText.length > 0, `${result.finalText.length} 字符`)
+  "第一轮 finish_reason 是 tool_calls",
+  result.finish1 === "tool_calls",
+  `实际是 ${JSON.stringify(result.finish1)}`,
+);
+check(
+  "模型选择调用工具",
+  result.toolName.length > 0,
+  result.toolName || "（没拿到）",
+);
+check(
+  "arguments 被解析成了对象",
+  typeof result.args === "object" &&
+    result.args !== null &&
+    !Array.isArray(result.args),
+  typeof result.args === "string"
+    ? "❌ 还是字符串 —— 忘了 JSON.parse"
+    : JSON.stringify(result.args),
+);
+check(
+  "工具真的被调用了（返回值非空）",
+  result.toolReturn.length > 0,
+  `${result.toolReturn.length} 字符`,
+);
+check(
+  "第二轮拿到最终回答",
+  result.finalText.length > 0,
+  `${result.finalText.length} 字符`,
+);
 
-console.log('\n  ─────────── 自检 ───────────\n')
+console.log("\n  ─────────── 自检 ───────────\n");
 for (const r of results) {
-  console.log(`  ${r.pass ? '✅' : '❌'} ${r.name}${r.detail ? `  —  ${r.detail}` : ''}`)
+  console.log(
+    `  ${r.pass ? "✅" : "❌"} ${r.name}${r.detail ? `  —  ${r.detail}` : ""}`,
+  );
 }
-const failed = results.filter((r) => !r.pass).length
-console.log()
+const failed = results.filter((r) => !r.pass).length;
+console.log();
 
 if (failed === 0) {
-  console.log('  🎉 全部通过。你刚刚手写了一个完整的工具调用往返 —— 这就是 Agent Loop 的雏形。\n')
-  console.log('  💡 下一步（选做，但很值）：把 tool_call_id 故意写错，看它返回什么。')
-  console.log('     那条 400 报了名字，你能读懂它吗？\n')
-  process.exit(0)
+  console.log(
+    "  🎉 全部通过。你刚刚手写了一个完整的工具调用往返 —— 这就是 Agent Loop 的雏形。\n",
+  );
+  console.log(
+    "  💡 下一步（选做，但很值）：把 tool_call_id 故意写错，看它返回什么。",
+  );
+  console.log("     那条 400 报了名字，你能读懂它吗？\n");
+  process.exit(0);
 } else {
-  console.log(`  ${failed} 项没过。\n`)
-  console.log('  排查顺序建议：')
-  console.log('    1. 先打印 msg1（第一轮的 assistant 消息）—— 确认 tool_calls 在里面')
-  console.log('    2. 再打印你第二轮发出去的完整 messages —— 看最后两条长什么样')
-  console.log('    3. 对照文件开头的「常见报错对照表」\n')
-  process.exit(1)
+  console.log(`  ${failed} 项没过。\n`);
+  console.log("  排查顺序建议：");
+  console.log(
+    "    1. 先打印 msg1（第一轮的 assistant 消息）—— 确认 tool_calls 在里面",
+  );
+  console.log(
+    "    2. 再打印你第二轮发出去的完整 messages —— 看最后两条长什么样",
+  );
+  console.log("    3. 对照文件开头的「常见报错对照表」\n");
+  process.exit(1);
 }

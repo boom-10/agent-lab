@@ -34,6 +34,18 @@
  *
  *
  * ────────────────────────────────────────────────────────────────────────────
+ *  开发中怎么调试（重要）
+ * ────────────────────────────────────────────────────────────────────────────
+ *
+ * **直接在 main() 里 console.log 就行。** 那是你自己的代码，随时可以加。
+ *
+ * 你会看到自己的输出，后面跟一句「ℹ️ 自检已跳过」——
+ * **那不是报错**，只是因为 main() 还没 return 结果，自检没东西可检。
+ *
+ * 为什么这么设计：自检读的是 **main() 的返回值**，不是你打印了什么。
+ * 这样它才能判断「你有没有真的拼出那段文本」，而不是「你有没有跑起来」。
+ *
+ * ────────────────────────────────────────────────────────────────────────────
  *  怎么调试
  * ────────────────────────────────────────────────────────────────────────────
  *
@@ -277,11 +289,14 @@ async function main(): Promise<StreamResult | undefined> {
 const result = await main();
 
 if (!result) {
-  console.log("\n  ⏳ 还没写完 —— main() 还返回 undefined。");
-  console.log(
-    "     填完 4 个 TODO，把最后一行改成 return { ... }，再跑一次。\n",
-  );
-  process.exit(0);
+  // 学习者常常误以为这是报错。它不是 ——
+  // 他自己的 console.log 已经打完了，这里只是说「自检没东西可检」。
+  console.log("")
+  console.log("  ℹ️  自检已跳过（main() 还没 return 结果）—— 这不是报错。")
+  console.log("     你上面的输出都是正常的。")
+  console.log("     写完 4 个 TODO 并把最后一行改成 return { ... }，自检就会跑。")
+  console.log("")
+  process.exit(0)
 }
 
 type CheckResult = { name: string; pass: boolean; detail?: string };
@@ -335,8 +350,8 @@ if (failed === 0) {
     "  🎉 全部通过。把这几个数字记进你的 README，然后进第 0003 节。\n",
   );
   if (IS_MOCK) {
-    console.log("     最后调一次真 API 确认真实行为一致：");
-    console.log("       node --env-file=.env exercises/01-raw-api/stream.ts\n");
+    console.log("     最后调一次真 API 确认真实行为一致（停掉 mock 再跑）：");
+    console.log("       npm run ex:stream\n");
   }
   process.exit(0);
 } else {
