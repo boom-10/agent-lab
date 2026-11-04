@@ -47,6 +47,13 @@
   --measure: 44rem;
   /* 侧栏最小宽度；实际会随可用空间变化 */
   --rail: 15rem;
+
+  /* ⚠️ 顶栏高度。左右两栏的 sticky 靠它定位。
+     我曾经在重写这个文件时把它删了，导致 `top: var(--spacing-topbar)` 静默失效 ——
+     CSS 自定义属性未定义时不会报错，只是整条声明被丢弃，
+     sticky 于是退回 `top: auto`，跟着页面一起滚走。
+     现在有 scripts/check-css-vars.mjs 盯着这件事。 */
+  --spacing-topbar: 3.5rem;
 }
 
 html {

@@ -65,6 +65,16 @@ export function Toc() {
     }
   }, [heads])
 
+  // 高亮项自动滚进可视区。
+  // 目录比视口长时，当前小节可能滚到看不见的地方 —— 那「我在哪」就白标了。
+  // block:'nearest' 是关键：只在真的看不见时才滚，且滚最小距离，不打断阅读。
+  useEffect(() => {
+    if (!active) return
+    document
+      .querySelector(`.doc-rail a[href="#${CSS.escape(active)}"]`)
+      ?.scrollIntoView({ block: 'nearest' })
+  }, [active])
+
   if (!heads.length) return <aside className="doc-rail no-print" />
 
   return (

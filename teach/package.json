@@ -7,9 +7,10 @@
   "scripts": {
     "dev": "vite dev --port 3021",
     "build": "vite build",
-    "prebuild": "node scripts/check-mdx.mjs",
+    "prebuild": "node scripts/check-mdx.mjs && node scripts/check-css-vars.mjs",
     "preview": "vite preview --port 3021",
     "check:mdx": "node scripts/check-mdx.mjs",
+    "check:css": "node scripts/check-css-vars.mjs",
     "check:responsive": "node scripts/check-responsive.mjs",
     "typecheck": "tsc --noEmit"
   },
