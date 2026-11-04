@@ -106,47 +106,74 @@ if (!KEY) {
 // 注意：顶层 await 抛错在 ESM 里走的是 uncaughtException，不是 unhandledRejection，
 // 所以两个都要挂（实测过）。
 const diagnose = (e: unknown): never => {
-  const err = e as { message?: string; raw?: string };
-  console.error("\n  ❌ 请求失败\n");
+  const err = e as { message?: string; raw?: string; name?: string }
 
+  // ── 先分两类：HTTP 失败 vs 你自己的代码抛错 ──
+  // 这个区分很重要。之前不管哪种都打「请求失败」，
+  // 结果学习者拿着一个 TypeError 去查网络，方向完全错了。
   if (!err?.raw) {
-    console.error("     ", err?.message ?? String(e), "\n");
-    process.exit(1);
+    const msg = err?.message ?? String(e)
+    const isConn = /fetch failed|ECONNREFUSED/i.test(msg)
+
+    console.error(
+      isConn
+        ? `\n  ❌ 连不上服务器 —— 这不是你代码的 bug\n`
+        : `\n  ❌ 你的代码抛错了 —— 不是 HTTP 问题\n`,
+    )
+    console.error(`     ${err?.name ?? 'Error'}: ${msg}\n`)
+
+    if (/reading '(function|name|arguments|id)'/.test(msg)) {
+      console.error("  💡 病因：`call` 是 undefined —— 模型这一轮**没有返回 tool_calls**。")
+      console.error('     所以 call.function / call.id 全都取不到。\n')
+      console.error('     三种可能，按概率排：\n')
+      console.error('       ① **mock 没在跑，或跑的是旧版本**')
+      console.error('          → 终端 A 按 Ctrl-C 停掉，重新 `npm run mock`')
+      console.error('          旧进程会一直占着 39001 端口，你改了 mock 代码它也不知道\n')
+      console.error("       ② messages 里已经有一条 role:'tool' 的消息")
+      console.error('          → mock 看到工具结果就当成第二轮，于是正常回答、不给 tool_calls\n')
+      console.error('       ③ tools 数组是空的，或者发的时候漏传了')
+      console.error('          → 在 chat() 里打印一下收到的 tools\n')
+      console.error('     想直接看后端返回了什么：在 `const call = ...` 上面加一行')
+      console.error('       console.log(JSON.stringify(msg1, null, 2))\n')
+    } else if (/fetch failed|ECONNREFUSED/i.test(msg)) {
+      console.error('  💡 病因：连不上服务器。')
+      console.error('     mock 模式最常见的原因就是 **mock 没在跑** —— 或者刚被你 Ctrl-C 了。')
+      console.error('     另开一个终端：npm run mock\n')
+    } else {
+      console.error('     看报错指向你代码的哪一行，从那里往回查。\n')
+    }
+    process.exit(1)
   }
 
-  let msg = err.raw;
+  // ── HTTP 层面的失败（chat() 抛的，带了原始 body）──
+  let msg = err.raw
   try {
-    msg =
-      (JSON.parse(err.raw) as { error?: { message?: string } }).error
-        ?.message ?? err.raw;
+    msg = (JSON.parse(err.raw) as { error?: { message?: string } }).error?.message ?? err.raw
   } catch {
     /* 不是 JSON 就用原文 */
   }
 
-  console.error("     ", msg, "\n");
+  console.error(`\n  ❌ 请求失败 —— ${err.message ?? ''}\n`)
+  console.error('     ', msg, '\n')
 
-  if (/role 'tool' must be a response to a preceding/i.test(msg)) {
-    console.error(
-      "  💡 病因：你发的 role:'tool' 消息，前面没有对应的 tool_calls。",
-    );
-    console.error("     两个常见原因：");
-    console.error(
-      "       1. 忘了把第一轮的 assistant 消息（连同 tool_calls）塞回 messages",
-    );
-    console.error("          → messages.push(msg1)");
-    console.error(
-      "       2. tool_call_id 是自己编的，不是从 call.id 原样透传的\n",
-    );
+  if (/fetch failed/i.test(msg)) {
+    console.error('  💡 病因：连不上服务器。mock 模式最常见的原因就是 **mock 没在跑**。')
+    console.error('     另开一个终端：npm run mock\n')
+  } else if (/role 'tool' must be a response to a preceding/i.test(msg)) {
+    console.error("  💡 病因：你发的 role:'tool' 消息，前面没有对应的 tool_calls。")
+    console.error('     两个常见原因：')
+    console.error('       1. 忘了把第一轮的 assistant 消息（连同 tool_calls）塞回 messages')
+    console.error('          → messages.push(msg1)')
+    console.error('       2. tool_call_id 是自己编的，不是从 call.id 原样透传的\n')
   } else if (/did not have response messages/i.test(msg)) {
-    console.error("  💡 病因：tool_call_id 和上一轮 tool_calls[].id 对不上。");
-    console.error("     ★ 必须原样透传 call.id，不能自己重新生成。\n");
+    console.error('  💡 病因：tool_call_id 和上一轮 tool_calls[].id 对不上。')
+    console.error('     ★ 必须原样透传 call.id，不能自己重新生成。\n')
   } else if (/401|Authentication Fails/i.test(msg)) {
-    console.error(
-      "  💡 病因：KEY 没读到或无效。检查 --env-file，见文件开头的坑 ①。\n",
-    );
+    console.error('  💡 病因：KEY 没读到或无效。')
+    console.error('     mock 模式：确认 mock 在跑；真 API 模式：检查 .env\n')
   }
-  process.exit(1);
-};
+  process.exit(1)
+}
 process.on("uncaughtException", diagnose);
 process.on("unhandledRejection", diagnose);
 
@@ -287,16 +314,18 @@ async function main(): Promise<ToolResult | undefined> {
   // ① call.function.name —— 要调哪个工具
   //    ★ 如果你注册了多个工具，这里必须**按名字分发**，不能写死。
   //
+  const toolName = call.function.name;
   // ② call.function.arguments 是**字符串**！不是对象。
   //    必须 JSON.parse。这不是 bug，是协议设计 ——
   //    流式下这个字符串是分片下发的，服务端只能给你拼好的文本。
   //
   //    const args = JSON.parse(call.function.arguments) as Record<string, unknown>
   //
+  const args = JSON.parse(call.function.arguments) as Record<string, unknown>;
   // ③ 真的执行。别 `return 'ok'` 糊弄 —— 这一节的重点是「从会说话到能做事」。
   //    读文件、算数、查时间，随便哪个，但要**真的做**。
   //
-  //    const toolReturn = '...'   // 必须是字符串
+  const toolReturn = "..."; // 必须是字符串
   //
   // 💡 想更真实的话，把结果做成 JSON 字符串：JSON.stringify({ ... })
 
@@ -307,17 +336,17 @@ async function main(): Promise<ToolResult | undefined> {
   // 这一步是整个练习最容易写错的地方。要往 messages 里追加**两条**：
   //
   //   ① 第一轮的 assistant 消息 —— **原样**塞回去（连同 tool_calls）
-  //        messages.push(msg1 as unknown as ChatMessage)
+  messages.push(msg1 as unknown as ChatMessage);
   //
   //      ⚠️ 不能只塞 content。tool_calls 必须一起带上，
   //         否则服务端不知道你在回应哪个调用。
   //
   //   ② 一条 role:'tool' 的消息
-  //        messages.push({
-  //          role: 'tool',
-  //          tool_call_id: call.id,     // ★★ 原样透传，不要自己生成
-  //          content: toolReturn,
-  //        })
+  messages.push({
+    role: "tool",
+    tool_call_id: call.id, // ★★ 原样透传，不要自己生成
+    content: toolReturn,
+  });
   //
   // ★★ 关于 tool_call_id：
   //
@@ -336,8 +365,8 @@ async function main(): Promise<ToolResult | undefined> {
   //    想亲眼看这个报错？把上面那行改成 tool_call_id: 'call_WRONG' 再跑一次。
   //    这个文件的诊断处理器会直接告诉你病因。
   //
-  // const data2 = await chat(messages, tools)
-  // const finalText = data2.choices[0]!.message.content ?? ''
+  const data2 = await chat(messages, tools);
+  const finalText = data2.choices[0]!.message.content ?? "";
 
   // ────────────────────────────────────────────────────────────────────────
   //  TODO 5 · 返回结果（顺便打印给人看）
@@ -345,15 +374,13 @@ async function main(): Promise<ToolResult | undefined> {
   //
   // 自检靠**返回值**，不靠打印。但打印出来你自己看得见：
   //
-  // console.log(`  工具名          ${call.function.name}`)
-  // console.log(`  参数（解析后）    ${JSON.stringify(args)}`)
-  // console.log(`  工具返回值        ${toolReturn}`)
-  // console.log(`  第二轮 finish     ${data2.choices[0]!.finish_reason}`)
-  // console.log(`  最终回答          ${finalText}`)
-  //
-  // return { toolName: call.function.name, args, toolReturn, finish1, finalText }
+  console.log(`  工具名          ${call.function.name}`);
+  console.log(`  参数（解析后）    ${JSON.stringify(args)}`);
+  console.log(`  工具返回值        ${toolReturn}`);
+  console.log(`  第二轮 finish     ${data2.choices[0]!.finish_reason}`);
+  console.log(`  最终回答          ${finalText}`);
 
-  return undefined; // ← 写完就删掉这一行
+  return { toolName: call.function.name, args, toolReturn, finish1, finalText };
 }
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -365,12 +392,14 @@ const result = await main();
 if (!result) {
   // 学习者常常误以为这是报错。它不是 ——
   // 他自己的 console.log 已经打完了，这里只是说「自检没东西可检」。
-  console.log("")
-  console.log("  ℹ️  自检已跳过（main() 还没 return 结果）—— 这不是报错。")
-  console.log("     你上面的输出都是正常的。")
-  console.log("     写完 5 个 TODO 并把最后一行改成 return { ... }，自检就会跑。")
-  console.log("")
-  process.exit(0)
+  console.log("");
+  console.log("  ℹ️  自检已跳过（main() 还没 return 结果）—— 这不是报错。");
+  console.log("     你上面的输出都是正常的。");
+  console.log(
+    "     写完 5 个 TODO 并把最后一行改成 return { ... }，自检就会跑。",
+  );
+  console.log("");
+  process.exit(0);
 }
 
 type CheckResult = { name: string; pass: boolean; detail?: string };

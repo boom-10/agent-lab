@@ -1,0 +1,9 @@
+{
+  "name": "dsh-probe-turn-hooks",
+  "version": "0.1.0",
+  "private": true,
+  "description": "只打日志：观察 agent/turn-stopping、agent/pre-step、agent/request-error 何时触发",
+  "type": "module",
+  "main": "index.js",
+  "dsh": { "bundle": { "patch": "./cordis.patch.yml" } }
+}
