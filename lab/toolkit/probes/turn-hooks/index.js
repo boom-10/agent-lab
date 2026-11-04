@@ -34,7 +34,11 @@ export function apply(ctx) {
     log('★ turn-stopping    turn=', p?.turn, ' keys=', shape(p))
   })
   // waterfall：可拒绝一个 proposed step，或替换进入它的 messages
-  ctx.on('agent/pre-step', (p) => log('★ pre-step         ', shape(p)))
+  // ★ waterfall：必须把 value 原样传下去，否则会被替换成 undefined
+  ctx.on('agent/pre-step', (p) => {
+    log('★ pre-step         ', shape(p))
+    return p            // ← 实验 B：显式返回
+  })
   // 可重试失败的模型请求
   ctx.on('agent/request-error', (p) => log('★ request-error    ', shape(p)))
 

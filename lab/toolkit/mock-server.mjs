@@ -20,8 +20,20 @@
  */
 
 import { createServer } from 'node:http'
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 
 const PORT = Number(process.env.MOCK_PORT ?? 39001)
+
+// 版本指纹 —— 用来识别「你连的是不是最新的 mock」。
+// 改过这个文件，指纹就会变；如果启动后指纹没变，说明你跑的还是旧的。
+const VERSION = (() => {
+  const self = readFileSync(fileURLToPath(import.meta.url))
+  let h = 0
+  for (const b of self) h = (h * 31 + b) >>> 0
+  return h.toString(16).padStart(8, '0')
+})()
+
 
 /** 把文本切成小块，模拟 token 流 */
 function chunkText(text, size = 6) {
@@ -227,8 +239,24 @@ const server = createServer(async (req, res) => {
   res.end()
 })
 
+// 端口被占用时给人话，而不是 EADDRINUSE 堆栈。
+// 这是这个 mock 最常被踩的坑：改了 mock 代码，旧进程还占着端口，
+// 你以为在测新逻辑，其实测的是旧的。
+server.on('error', (e) => {
+  if (e.code !== 'EADDRINUSE') throw e
+  console.error(`\n  ❌ 端口 ${PORT} 已经被占用了\n`)
+  console.error(`     多半是你上一次 npm run mock 还在跑（同一个终端或另一个终端）。\n`)
+  console.error(`     怎么办：`)
+  console.error(`       ① 直接重跑 ${'`'}npm run mock${'`'} —— 它会先自动清掉旧进程`)
+  console.error(`       ② 或者手动：${'`'}lsof -ti:${PORT} | xargs kill${'`'}\n`)
+  console.error(`     ⚠️ 为什么必须重启：改了 mock-server.mjs 之后，`)
+  console.error(`        旧进程用的还是旧代码，它不会自动重载。\n`)
+  process.exit(1)
+})
+
 server.listen(PORT, '127.0.0.1', () => {
   console.log(`[mock] 模拟 DeepSeek API 已启动: http://127.0.0.1:${PORT}`)
-  console.log(`[mock] 用法: DEEPSEEK_BASE_URL=http://127.0.0.1:${PORT} DEEPSEEK_API_KEY=sk-mock node <脚本>`)
+  console.log(`[mock] 版本指纹: ${VERSION}   ← 每次启动都会打印，改过代码后应该变`)
+  console.log(`[mock] 用法: node run.mjs <文件>  （或 npm run ex:stream）`)
   console.log(`[mock] 按 Ctrl-C 退出`)
 })
