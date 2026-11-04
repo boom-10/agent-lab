@@ -1,6 +1,7 @@
 import type { MDXComponents } from 'mdx/types'
 import { Quiz } from '@/components/Quiz'
 import { BufferDemo } from '@/components/BufferDemo'
+import { CodeBlock } from '@/components/CodeBlock'
 
 /** 提示框。MDX 里：<Callout kind="do" title="现在就做">…</Callout> */
 export function Callout({
@@ -45,6 +46,8 @@ export function Lede({ children }: { children: React.ReactNode }) {
 }
 
 export const mdxComponents: MDXComponents = {
+  // 覆盖 pre，给每个代码块加「复制」按钮
+  pre: CodeBlock,
   Quiz,
   BufferDemo,
   Callout,

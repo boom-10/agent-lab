@@ -317,6 +317,60 @@ aside a[href^='#'] {
   margin: 2.75rem 0;
 }
 
+/* ── 代码块 + 复制按钮 ── */
+.code-block {
+  position: relative; /* 按钮靠它定位 */
+}
+
+.code-copy {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.5rem;
+  z-index: 1;
+
+  font-family: var(--font-sans);
+  font-size: 0.72rem;
+  line-height: 1;
+  padding: 0.36rem 0.55rem;
+  border-radius: 6px;
+  border: 1px solid var(--color-line);
+  background: color-mix(in srgb, var(--color-panel) 88%, transparent);
+  backdrop-filter: blur(4px);
+  color: var(--color-ink-faint);
+
+  /* 默认低调但可见 —— 触屏没有 hover，藏起来就等于没有 */
+  opacity: 0.55;
+  transition: opacity 0.15s, color 0.15s, border-color 0.15s, background 0.15s;
+}
+
+.code-block:hover .code-copy,
+.code-copy:focus-visible {
+  opacity: 1;
+  color: var(--color-ink);
+  border-color: #d4d4d0;
+  background: var(--color-panel);
+}
+
+.code-copy[data-state='ok'] {
+  opacity: 1;
+  color: var(--color-ok);
+  border-color: #86efac;
+  background: var(--color-ok-bg);
+}
+.code-copy[data-state='err'] {
+  opacity: 1;
+  color: var(--color-bad);
+  border-color: #fda4af;
+  background: var(--color-bad-bg);
+}
+
+/* 打印时不需要复制按钮 */
+@media print {
+  .code-copy {
+    display: none;
+  }
+}
+
 /* ── 行内代码 ── */
 .prose :not(pre) > code {
   font-family: var(--font-mono);
