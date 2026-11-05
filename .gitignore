@@ -32,3 +32,6 @@ outputs/
 
 # mock 环境（无真实密钥，但不必提交）
 .env.mock
+
+# 已拆到独立仓库的插件（本地保留副本，不进主仓库）
+lab/plugins/dsh-goal-budget/
