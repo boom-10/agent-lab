@@ -251,6 +251,31 @@ npm run mock      # 终端 A
 
 </Callout>
 
+## 理论补充：模型怎么「知道」要调工具
+
+你传进去的 `tools` 不是一个开关，它是一段文本。`name`、`description`、`parameters`（JSON Schema）会被放进模型的输入里，模型据此决定要不要调用、调哪个、参数是什么。
+
+这意味着两件事：
+
+- **工具定义也是输入 token。** 第 0004 节的实验里，同一段对话加上 tools，`prompt_tokens` 从 1778 涨到 2018，多了 240 个。工具越多，每次请求的基础成本越高。
+- **`description` 的质量直接影响选对率。** 模型选工具，靠的就是这段描述。后面讲工具协议的章节会回到这一点。
+
+模型本身不执行工具。它输出的是「我想调用这个函数，参数是这些」的结构化请求。执行发生在你的代码里。这个边界，就是第 11 章权限门要守住的地方。
+
+`tool_calls` 是一个数组。模型可能一次要求调用多个工具（并行调用），你要逐个执行，每个结果都要带回对应的 `tool_call_id`。
+
+## 面试映射
+
+| 面试会问 | 这一节给你的答案 |
+| --- | --- |
+| 模型是怎么决定调用工具的？ | 训练得到的行为，加上你提供的工具描述。它只输出调用意图，不执行。 |
+| 工具为什么不让模型直接执行？ | 安全和边界。执行放在客户端，才能做权限、审批和审计。 |
+| 一次回复里有多个工具调用怎么办？ | `tool_calls` 是数组，逐个执行，结果按 `tool_call_id` 一一对应地带回去。 |
+
+## 延伸阅读
+
+- [DeepSeek 工具调用指南](https://api-docs.deepseek.com/guides/tool_calls)
+- [Anthropic：Building effective agents（关于工具设计的部分）](https://www.anthropic.com/engineering/building-effective-agents)
 ## 检验一下
 
 <Quiz

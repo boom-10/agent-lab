@@ -101,6 +101,29 @@ npm run ex:kv
 
 自检里有 8 个检查，对应本节的数字。文件开头有一张「常见错误对照」，比如结果差 2 倍，通常是忘了 K 和 V 各存一份。
 
+## 理论补充：KV cache 的显存管理
+
+前面算的是 KV cache 的大小。真正难的是怎么放。
+
+每个请求的长度不一样，生成过程中还在变长。如果给每个请求预留最大长度的连续显存，大部分会浪费（内部碎片）；如果按需分配，又会留下一堆零散的小块，放不下新的长请求（外部碎片）。
+
+PagedAttention 借鉴了操作系统的分页：把 KV cache 切成固定大小的块，用一张表记录每个请求用了哪些块。块不需要连续，碎片大幅减少。论文里还讨论了用同一机制共享块（比如并行采样和 beam search）。论文报告了相对基线的吞吐量提升，具体数字以论文为准，我们没有复现。
+
+DeepSeek-V2 的 MLA 从另一个方向减小 KV cache：不是放得更好，而是存得更少（前面那 576 个数）。两种思路原则上可以叠加，具体要看推理框架是否支持。
+
+## 面试映射
+
+| 面试会问 | 这一节给你的答案 |
+| --- | --- |
+| KV cache 为什么会成为显存瓶颈？ | 大小随上下文长度和 batch 线性增长，而且每个请求的长度不一样，分配还会产生碎片。 |
+| PagedAttention 解决什么问题？ | KV cache 的显存碎片。把它切成块，按需分配，块不需要连续。 |
+| MQA、GQA、MLA 有什么区别？ | MQA 让所有查询头共享一组 KV；GQA 是分组共享，介于 MHA 和 MQA 之间；MLA 把 KV 压缩成低维的 latent 再存。目的都是让 KV cache 变小。 |
+
+## 延伸阅读
+
+- [PagedAttention（vLLM）](https://arxiv.org/abs/2309.06180)
+- [DeepSeek-V2（MLA 的出处）](https://arxiv.org/abs/2405.04434)
+- [DeepSeek-V3 的官方配置](https://huggingface.co/deepseek-ai/DeepSeek-V3/blob/main/config.json)
 ## 检验一下
 
 <Quiz

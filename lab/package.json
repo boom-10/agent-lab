@@ -22,6 +22,8 @@
     "api:stream:mock": "node run.mjs toolkit/reference/02-stream.ts --mock",
     "api:tools:mock": "node run.mjs toolkit/reference/03-tools.ts --mock",
     "probe": "cd toolkit/cordis-probe && node probe.mjs",
+    "probe:sampling": "node run.mjs toolkit/probe-sampling.mjs --real",
+    "probe:decode": "node run.mjs toolkit/probe-decode.mjs --real",
     "probe:silent-fail": "cd toolkit/cordis-probe && cp case-e-silent-fail.yml cordis.yml && node probe.mjs",
     "probe:service": "cd toolkit/cordis-probe && cp case-f-service-inject.yml cordis.yml && node probe.mjs",
     "probe:no-apply": "cd toolkit/cordis-probe && cp case-g-class-without-apply.yml cordis.yml && node probe.mjs",

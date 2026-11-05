@@ -231,6 +231,33 @@ for await (const piece of res.body) {
 它会记住被切断的多字节字符，等下一段补齐 —— 少了它，中文会变乱码。
 （这和缓冲区是**两个不同层面**的同一个问题：一个是字符被切断，一个是事件被切断。）
 
+## 理论补充：为什么前端不能直接用 EventSource 接 POST
+
+浏览器自带的 `EventSource`，构造函数只接收 URL，外加一个可选的 `withCredentials`。它没有 method 和 body 选项（MDN 构造函数文档列出的选项就是这些），所以它只能发不带请求体的请求。
+
+LLM 的流式接口通常是 POST，请求体里装着整段对话，所以不能直接用 `EventSource`。前端要用 `fetch` 拿到 `ReadableStream`，自己按 SSE 格式解析。第 0002 节里的解析器就是这样写的。
+
+这对第 5 章（Agent 前端）很重要：整个流式界面的数据来源，就是你自己写的那段解析代码。
+
+## 理论补充：断线续传
+
+SSE 规范定义了 `Last-Event-ID` 请求头：客户端断线后可以带上最后收到的事件 ID 重连，服务端从那里接着发（规范 9.2.4 节）。
+
+LLM 的流式接口是否支持这样的续传，我们没有验证。按我们目前的理解，它不会替你保存已生成的内容，断线就要重新请求。这一点第 5 章再处理：已到达的内容不丢，并且明确告诉用户中断了。
+
+## 面试映射
+
+| 面试会问 | 这一节给你的答案 |
+| --- | --- |
+| 流式为什么用 SSE 而不是 WebSocket？ | 常见回答：LLM 输出是服务端单向推送，SSE 就是普通的 HTTP 响应，代理和网关更友好。这是一种权衡，不是绝对结论。 |
+| 前端怎么接 POST 的流式输出？ | 用 `fetch` 加 `ReadableStream`，自己做 SSE 解析。`EventSource` 不能发 POST。 |
+| 流式输出断线怎么办？ | 没有统一的续传协议。前端能做的是保留已到达的内容，并明确告知用户中断了。 |
+
+## 延伸阅读
+
+- [SSE 规范（WHATWG HTML Standard）](https://html.spec.whatwg.org/multipage/server-sent-events.html)
+- [MDN：EventSource 构造函数](https://developer.mozilla.org/en-US/docs/Web/API/EventSource/EventSource)
+- [MDN：使用 server-sent events](https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events/Using_server-sent_events)
 ## 检验一下
 
 <Quiz
@@ -271,6 +298,8 @@ for await (const piece of res.body) {
   —— 看 `stream` 和 `stream_options` 两节。
 
 ## 你的产出
+
+> 我们的参考实现在一次真实调用里测得首字（TTFT）约 712 ms，共 27 个流式事件，`hit = 0`（这次请求没有命中缓存）。你的数字会不同。关键是你能说清楚它是怎么测出来的。
 
 **文件已经建好了**，你只需要填 4 个 TODO：
 

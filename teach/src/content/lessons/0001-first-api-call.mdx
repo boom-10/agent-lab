@@ -115,6 +115,87 @@ prompt_tokens (10) = prompt_cache_hit_tokens (0) + prompt_cache_miss_tokens (10)
 差多少、怎么才能命中，是后面某一课的内容。
 今天只要记住：**这两个数字决定你的账单。**
 
+## 理论补充：这个 API 是无状态的
+
+第 0001 节的请求，模型看到的只有这一次 `messages` 里的内容。它不保存上一次的对话。
+
+我们用一个小实验验证了这一点（见下面的实验，第 0 段）：
+
+- 第二次请求不带历史：模型回答「我不知道你的名字——在这次的对话里，你还没有告诉我……」
+- 第二次请求带上历史：模型回答「你叫小明。」
+- 两次请求的 `prompt_tokens` 分别是 8 和 35。
+
+所以「多轮对话」在工程上只有一件事：**客户端保存历史，每次把整段历史发回去。** 官方的多轮对话指南（见延伸阅读）可以对照着读。
+
+这带来两个后果：
+
+- 请求会越来越长。历史越长，第 1 章讲的 prefill 成本就越高。
+- 历史由谁保存、保存多少、怎么裁剪，是 Agent 的核心工程问题。第 7 章专门讲。
+
+`messages` 里的 `role` 各有用途：`system` 放规则，`user` 是用户输入，`assistant` 是模型上一轮的输出（要原样放回去），`tool` 是工具结果（第 0003 节）。
+
+### 采样参数：各改变了什么
+
+| 参数 | 作用 | 我们怎么验证的 |
+| --- | --- | --- |
+| `max_tokens` | 输出上限，超了就截断 | 设成 5，`finish_reason` 变成 `length`，`completion_tokens` 正好是 5 |
+| `temperature` | 采样的随机程度 | 下面的实验，第 3 段 |
+| `top_p` | 只从累计概率达到 p 的候选里采样 | 没有实验，只讲理论 |
+| `thinking` | 是否先推理再回答 | 下面的实验，第 2 段 |
+
+`temperature` 和 `top_p` 都控制随机性，一般只调其中一个。
+
+## 实验：参数到底改变了什么
+
+```bash
+cd ~/Desktop/Personal/agent-lab/lab
+npm run probe:sampling
+```
+
+这个脚本调真 API，花费几分钱。下面是我们跑的一次结果（摘了关键行）：
+
+```text
+0. 无状态：不带历史 → 不记得名字；带历史 → 记得；prompt_tokens 8 vs 35
+1. max_tokens = 5 → finish_reason = length，completion_tokens = 5，内容被截断
+2. 不传 thinking → reasoning_content 有 64 个字符，reasoning_tokens = 18，completion_tokens = 20
+3. temperature = 0 → 三次回答不一样
+   temperature = 1.5 → 三次回答也不一样，差异更大
+```
+
+读这些结果，有两件事值得注意：
+
+- **thinking 默认是开着的。** 我们没有传 thinking 参数，模型还是先推理了 18 个 token。这些 token 计入 `completion_tokens`，也就是计入输出的账单。成本敏感的场景要显式关掉，或者按需打开。
+- **temperature = 0 不等于每次都一样。** 我们的直觉是 temperature 为 0 时输出应该固定，但三次结果不同。我们只跑了一轮，样本很小，所以只能写成观察。原因我们没有验证。
+
+<Callout kind="warn" title="我们的结果和直觉不一致">
+
+如果你想依赖「temperature = 0 就能复现」，先在你自己的任务上测一次，不要直接相信。
+
+</Callout>
+
+## 理论补充：采样到底在做什么
+
+模型每一步输出的是整个词表上的概率分布。采样就是从这个分布里选一个 token。
+
+- temperature 在选之前给分布「加热」或「降温」：越高，分布越平，选到低概率词的机会越大；越低，分布越尖，接近贪心选择。
+- top_p 先把词按概率排序，只保留累计概率达到 p 的那一小撮，再在里面采样。
+- 两者都不改变模型「知道什么」，只改变从分布里怎么取。
+
+这也是为什么 temperature = 0 不等于确定：服务端的数值计算和并行执行可能带来细微差异，而这些差异在采样时会被放大。这是常见的解释，我们没有在本课里验证它。
+
+## 面试映射
+
+| 面试会问 | 这一节给你的答案 |
+| --- | --- |
+| 大模型 API 是有状态还是无状态？多轮对话怎么做？ | 无状态。客户端保存历史，每次整段发回。我们的实验里，不带历史时模型不记得上一句。 |
+| temperature 和 top_p 有什么区别？ | 两者都控制随机性。temperature 改变概率分布的形状，top_p 截断候选集合。一般只调一个。 |
+| 为什么账单上的输出 token 比你看到的文字多？ | 开了 thinking 时，推理 token 也计入 `completion_tokens`。 |
+
+## 延伸阅读
+
+- [DeepSeek 多轮对话指南](https://api-docs.deepseek.com/guides/multi_round_chat)
+- [DeepSeek 思考模式（thinking）](https://api-docs.deepseek.com/guides/thinking_mode)
+- [DeepSeek Chat Completions API 参考](https://api-docs.deepseek.com/api/create-chat-completion)
 ## 检验一下
 
 <Quiz

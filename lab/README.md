@@ -193,3 +193,12 @@ if (!result) { /* 友好提示「还没写完」 */ }
 | `npm run ex:ttft` | `ttft-curve.ts` | 测你自己的 TTFT 曲线。调真 API，约 0.2 元，不用 mock |
 
 两个练习的文件头都有「怎么做」「怎么调试」和「常见错误对照」。
+
+## 第 0–1 章的探针（会调真 API，花费几分钱）
+
+| 命令 | 文件 | 说明 |
+| --- | --- | --- |
+| `npm run probe:sampling` | `toolkit/probe-sampling.mjs` | 无状态、max_tokens、thinking、temperature 的实验（第 0001 节） |
+| `npm run probe:decode` | `toolkit/probe-decode.mjs` | decode 的代价：输出长度与 TTFT、每 token 时间（第 0005 节） |
+
+这两个脚本只打印数字，不下结论。结论请你自己从数字里读出来。
