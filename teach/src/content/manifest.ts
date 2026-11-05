@@ -34,10 +34,10 @@ export const chapters: Chapter[] = [
     title: '第 0 章 · 把机器接上',
     subtitle: '原生 API 的四个动作：调用、流式、工具、账单',
     items: [
-      { slug: 'lessons/0001-first-api-call', title: '第一次 API 调用', minutes: 20 },
-      { slug: 'lessons/0002-streaming', title: '流式与 SSE', minutes: 30 },
-      { slug: 'lessons/0003-tool-calls', title: '工具调用', minutes: 40 },
-      { slug: 'lessons/0004-usage-and-cost', title: '读懂账单', minutes: 30 },
+      { slug: 'lessons/0001-first-api-call', title: '第一次 API 调用', minutes: 30 },
+      { slug: 'lessons/0002-streaming', title: '流式与 SSE', minutes: 35 },
+      { slug: 'lessons/0003-tool-calls', title: '工具调用', minutes: 45 },
+      { slug: 'lessons/0004-usage-and-cost', title: '读懂账单', minutes: 35 },
     ],
   },
   {
@@ -45,9 +45,9 @@ export const chapters: Chapter[] = [
     title: '第 1 章 · 推理的成本结构',
     subtitle: 'prefill 与 decode、KV cache 的显存、TTFT 的预算',
     items: [
-      { slug: 'lessons/0005-prefill-decode', title: 'Prefill 与 Decode', minutes: 40 },
-      { slug: 'lessons/0006-kv-cache', title: 'KV Cache 与显存', minutes: 45 },
-      { slug: 'lessons/0007-ttft-budget', title: 'TTFT 的预算', minutes: 40 },
+      { slug: 'lessons/0005-prefill-decode', title: 'Prefill 与 Decode', minutes: 45 },
+      { slug: 'lessons/0006-kv-cache', title: 'KV Cache 与显存', minutes: 50 },
+      { slug: 'lessons/0007-ttft-budget', title: 'TTFT 的预算', minutes: 45 },
     ],
   },
   {

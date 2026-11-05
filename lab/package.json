@@ -24,6 +24,7 @@
     "probe": "cd toolkit/cordis-probe && node probe.mjs",
     "probe:sampling": "node run.mjs toolkit/probe-sampling.mjs --real",
     "probe:decode": "node run.mjs toolkit/probe-decode.mjs --real",
+    "probe:tokens": "node run.mjs toolkit/probe-tokens.mjs --real",
     "probe:silent-fail": "cd toolkit/cordis-probe && cp case-e-silent-fail.yml cordis.yml && node probe.mjs",
     "probe:service": "cd toolkit/cordis-probe && cp case-f-service-inject.yml cordis.yml && node probe.mjs",
     "probe:no-apply": "cd toolkit/cordis-probe && cp case-g-class-without-apply.yml cordis.yml && node probe.mjs",

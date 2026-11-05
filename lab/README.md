@@ -200,5 +200,6 @@ if (!result) { /* 友好提示「还没写完」 */ }
 | --- | --- | --- |
 | `npm run probe:sampling` | `toolkit/probe-sampling.mjs` | 无状态、max_tokens、thinking、temperature 的实验（第 0001 节） |
 | `npm run probe:decode` | `toolkit/probe-decode.mjs` | decode 的代价：输出长度与 TTFT、每 token 时间（第 0005 节） |
+| `npm run probe:tokens` | `toolkit/probe-tokens.mjs` | 中文和英文各多少 token（第 0001 节） |
 
 这两个脚本只打印数字，不下结论。结论请你自己从数字里读出来。
