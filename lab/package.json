@@ -13,6 +13,8 @@
     "ex:tools": "node run.mjs exercises/01-raw-api/tools.ts",
     "ex:stream:mock": "node run.mjs exercises/01-raw-api/stream.ts --mock",
     "ex:tools:mock": "node run.mjs exercises/01-raw-api/tools.ts --mock",
+    "ex:kv": "node exercises/02-inference/kv-cache.ts",
+    "ex:ttft": "node run.mjs exercises/02-inference/ttft-curve.ts --real",
     "api:basic": "node run.mjs toolkit/reference/01-basic.ts",
     "api:stream": "node run.mjs toolkit/reference/02-stream.ts",
     "api:tools": "node run.mjs toolkit/reference/03-tools.ts",

@@ -1,0 +1,140 @@
+<Eyebrow>第 0006 节 · 约 40 分钟 · 手算 + 练习 1 个</Eyebrow>
+
+# KV Cache 与显存：<br/>一次长上下文要占多少显存
+
+<Lede>第 0005 节说，decode 每生成一个 token 都要读取之前所有的 K 和 V。这些 K 和 V 放在哪里，占多少？这一节算给你看。</Lede>
+
+## 为什么需要 KV Cache
+
+注意力计算里，每个 token 都要和它前面的所有 token 做计算。生成第 t 个 token 时，需要前面 t−1 个 token 的 K 和 V。
+
+如果每一步都重算所有历史 token 的 K 和 V，decode 的计算量会随长度越来越大。KV cache 的做法很简单：**每个 token 只算一次 K 和 V，存下来，之后每一步只追加一组新的。**
+
+```text
+生成第 1 个字：算 K₁ V₁，存下来
+生成第 2 个字：读 K₁ V₁，算 K₂ V₂，存下来
+生成第 3 个字：读 K₁ V₁ K₂ V₂，算 K₃ V₃，存下来
+……
+```
+
+代价是显存。缓存的东西会随上下文长度线性增长。
+
+## 公式：标准多头与 GQA
+
+每个 token、每一层，要存一份 K 和一份 V。如果两者维度相同（head_dim），总字节数是：
+
+```text
+每 token 字节数 = 2 × 层数 × KV 头数 × head_dim × 每元素字节数
+                  ↑                                 ↑
+            K 和 V 各存一份                    fp16 或 bf16 都是 2 字节
+```
+
+用一个 7B 量级的标准多头模型算一遍（32 层、32 个 KV 头、head_dim 128，这是 Llama-2-7B 的常见配置）：
+
+| 方案 | KV 头数 | 每 token | 4K 上下文 | batch = 16 时 |
+| --- | --- | --- | --- | --- |
+| MHA（标准多头） | 32 | 512 KiB | 2.00 GiB | 32 GiB |
+| GQA（分组查询） | 8 | 128 KiB | 512 MiB | 8 GiB |
+
+GQA 把 KV 头数从 32 减到 8，所以 KV cache 是原来的四分之一。注意它只减少 KV 头数，attention 的查询头数不变。
+
+<Callout kind="note" title="先算再对">
+
+上面的 512 KiB 你可以自己算：`2 × 32 × 32 × 128 × 2 = 524,288` 字节。这正是练习 03 自检里的第一个数字。
+
+</Callout>
+
+## MLA：DeepSeek 怎么省
+
+DeepSeek-V3 的官方配置（我们在它的 `config.json` 里核对过）：
+
+- `num_hidden_layers`：61
+- `num_attention_heads`：128
+- `kv_lora_rank`：512
+- `qk_rope_head_dim`：64
+- `torch_dtype`：bfloat16
+
+MLA 不存完整的 K 和 V。它把 K、V 压缩成一个低维的 latent（维度 512），再额外存一小部分带 RoPE 的 key（维度 64）。因此每个 token、每一层只存：
+
+512 + 64 = 576 个数
+
+换算：576 × 2 字节 × 61 层 = 70,272 字节，约 68.6 KiB/token。一个 128K 的单序列，约占 8.58 GiB（bf16）。
+
+作为对照，假设把同样的维度换成标准多头（128 个头，K 维 192，V 维 128）：每 token 约 4.77 MiB，128K 上下文约 610 GiB。两者相差约 71 倍。
+
+<Callout kind="warn" title="对照的口径">
+
+「假想的标准多头」只用来说明量级。DeepSeek-V3 实际不是这样存的。读这个对照时，请把它当成「如果不压缩，会贵到什么程度」的思想实验。
+
+</Callout>
+
+推理时，MLA 会把 latent 投影回各个头的 K 和 V 再计算。具体的矩阵吸收技巧，这一节不展开。
+
+## ★ 和第 0004 节的 prompt cache 不是一回事
+
+这两个概念很容易被混为一谈。面试官问「KV cache 是什么」，如果你答成「就是 prompt cache」，会被继续追问到底。
+
+| 维度 | prompt cache（第 0004 节） | KV cache（本节） |
+| --- | --- | --- |
+| 在哪里 | 服务端，跨请求 | 单次请求，占 GPU 显存 |
+| 缓存的是什么 | 一段前缀的计算结果，可被后续请求复用 | 每一层的 K 和 V，供本次生成复用 |
+| 解决什么问题 | 重复前缀的计费，以及 prefill 的成本 | 生成时不必重算历史 token |
+| 生命周期 | 由服务端决定，我们没有测过 TTL | 请求结束就释放 |
+
+## 显存决定了你能跑多长
+
+一张卡的显存，主要放三样东西：模型权重、KV cache、其他开销。长上下文和大 batch 都会放大 KV cache。
+
+同一个标准多头模型，单个 4K 序列占 2 GiB。如果 batch 是 16，就是 32 GiB。这就是为什么长上下文服务要花那么多钱，也是为什么 MLA 和 GQA 这类设计有价值。
+
+## 动手：手写一个 KV 计算器
+
+```bash
+cd ~/Desktop/Personal/agent-lab/lab
+npm run ex:kv
+```
+
+这个练习不需要 API key，纯计算。文件 `exercises/02-inference/kv-cache.ts` 已经建好，填两个 TODO：
+
+- **TODO 1**：`kvBytesPerToken`，算出每个 token 在所有层上占多少字节。
+- **TODO 2**：`kvBytesForContext`，算出上下文长度为 seqLen、batch 为 batch 时的总字节数。
+
+自检里有 8 个检查，对应本节的数字。文件开头有一张「常见错误对照」，比如结果差 2 倍，通常是忘了 K 和 V 各存一份。
+
+## 检验一下
+
+<Quiz
+  n={1}
+  of={3}
+  q="decode 阶段为什么需要 KV cache？"
+  options={['为了让模型记住用户的名字', '为了每一步不用重算所有历史 token 的 K 和 V', '为了让 prompt cache 生效']}
+  answer={1}
+  ok="对。KV cache 存的是历史 token 的 K 和 V。每一步只追加新的，不用重算旧的。"
+  no="再想想。注意力每一步都要读取历史的 K 和 V。KV cache 就是为了避免重算它们。"
+/>
+
+<Quiz
+  n={2}
+  of={3}
+  q="MHA 的 32 个 KV 头换成 GQA 的 8 个，KV cache 变成原来的几分之几？"
+  options={['二分之一', '四分之一', '八分之一']}
+  answer={1}
+  ok="对。KV 头数从 32 降到 8，缓存量就是原来的 8/32，也就是四分之一。"
+  no="再想想。KV cache 和 KV 头数成正比。8 除以 32 是多少？"
+/>
+
+<Quiz
+  n={3}
+  of={3}
+  q="MLA 每个 token、每一层缓存多少个数？"
+  options={['2 × 32 × 128 = 8,192', '512 + 64 = 576', '61 × 128 = 7,808']}
+  answer={1}
+  ok="对。MLA 只存压缩后的 latent（512）和 RoPE 部分（64）。"
+  no="再想想。MLA 不存完整的 K 和 V。它存的是 kv_lora_rank 加上 qk_rope_head_dim。"
+/>
+
+<Callout kind="good" title="下一节">
+
+第 0007 节：缓存能把首字延迟降多少？剩下的时间去了哪里？
+
+</Callout>

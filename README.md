@@ -77,6 +77,8 @@ npm run ex:stream      # 终端 B：做第 0002 节的练习
 | --- | --- |
 | `npm run check` | 环境自检（只读，不花钱） |
 | `npm run doctor` | **出问题时先跑这个** —— 从你当前 shell 把整条链路走一遍 |
+| `npm run ex:kv` | 第 1 章练习：手算 KV Cache 显存（纯计算，不花钱） |
+| `npm run ex:ttft` | 第 1 章练习：测你自己的 TTFT 曲线（调真 API，约 0.2 元） |
 | `npm run mock` | 本地模拟 API 服务器 —— **复刻了真 API 的校验和边界情况** |
 | `npm run ex:stream` / `ex:tools` | 两个练习（自带自检，写完直接跑） |
 | `npm run demo:naive` | 反面教材：看朴素 SSE 解析怎么**静默**丢掉 60% 内容 |

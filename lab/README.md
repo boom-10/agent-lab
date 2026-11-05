@@ -184,3 +184,12 @@ if (!result) { /* 友好提示「还没写完」 */ }
 
 > `tools.ts` 的 mock **支持你自己的工具** —— 它用你声明的第一个工具来造 tool_call，
 > `arguments` 按你 schema 里的 `required` 字段生成。所以你定义什么都能跑通。
+
+## 第 1 章的练习（exercises/02-inference/）
+
+| 命令 | 文件 | 说明 |
+| --- | --- | --- |
+| `npm run ex:kv` | `kv-cache.ts` | 手算 KV Cache 显存。纯计算，不需要 key |
+| `npm run ex:ttft` | `ttft-curve.ts` | 测你自己的 TTFT 曲线。调真 API，约 0.2 元，不用 mock |
+
+两个练习的文件头都有「怎么做」「怎么调试」和「常见错误对照」。

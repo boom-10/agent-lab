@@ -42,31 +42,113 @@ export const chapters: Chapter[] = [
   },
   {
     id: 'ch1',
-    title: '第 1 章 · 模型在想什么',
-    subtitle: 'KV Cache、推理成本、为什么前缀稳定能省钱',
+    title: '第 1 章 · 推理的成本结构',
+    subtitle: 'prefill 与 decode、KV cache 的显存、TTFT 的预算',
     items: [
-      { slug: 'lessons/0005-kv-cache', title: 'KV Cache 与推理机制', minutes: 40, wip: true },
-      { slug: 'lessons/0006-prompt-cache', title: '前缀缓存实验', minutes: 40, wip: true },
-      { slug: 'lessons/0007-cost-model', title: '成本模型', minutes: 30, wip: true },
+      { slug: 'lessons/0005-prefill-decode', title: 'Prefill 与 Decode', minutes: 35 },
+      { slug: 'lessons/0006-kv-cache', title: 'KV Cache 与显存', minutes: 40 },
+      { slug: 'lessons/0007-ttft-budget', title: 'TTFT 的预算', minutes: 35 },
     ],
   },
   {
     id: 'ch2',
     title: '第 2 章 · 能扛的客户端',
-    subtitle: '错误分类、重试退避、三个超时、并发控制',
+    subtitle: '超时、重试、取消、限流，以及故障注入测试',
     items: [
-      { slug: 'lessons/0008-llm-client', title: '生产级 LLM 客户端', minutes: 50, wip: true },
-      { slug: 'lessons/0009-resilience', title: '重试与超时', minutes: 40, wip: true },
+      { slug: 'lessons/0008-llm-client', title: '生产级 LLM 客户端', minutes: 35, wip: true },
+      { slug: 'lessons/0009-cancel-retry', title: '取消与重试', minutes: 30, wip: true },
     ],
   },
   {
     id: 'ch3',
-    title: '第 3 章 · 从零手写 Agent Loop',
-    subtitle: '本阶段的核心。不借助任何框架',
+    title: '第 3 章 · Agent 的本质与最小循环',
+    subtitle: '大脑、手脚、记忆、主见；三道上限的最小 loop',
     items: [
-      { slug: 'lessons/0010-agent-loop', title: '最小 Agent Loop', minutes: 60, wip: true },
-      { slug: 'lessons/0011-guardrails', title: '三道上限与重复检测', minutes: 45, wip: true },
-      { slug: 'lessons/0012-checkpoint', title: '检查点与恢复', minutes: 40, wip: true },
+      { slug: 'lessons/0010-agent-essence', title: 'Agent 的本质', minutes: 25, wip: true },
+      { slug: 'lessons/0011-agent-loop', title: '最小 Agent Loop', minutes: 40, wip: true },
+      { slug: 'lessons/0012-loop-guardrails', title: '三道上限与重复检测', minutes: 30, wip: true },
+    ],
+  },
+  {
+    id: 'ch4',
+    title: '第 4 章 · 经典范式',
+    subtitle: 'ReAct、Plan-and-Solve、Reflection，同一个任务的对比实验',
+    items: [
+      { slug: 'lessons/0013-react', title: 'ReAct', minutes: 35, wip: true },
+      { slug: 'lessons/0014-plan-reflect', title: 'Plan-and-Solve 与 Reflection', minutes: 35, wip: true },
+    ],
+  },
+  {
+    id: 'ch5',
+    title: '第 5 章 · Agent 前端',
+    subtitle: '流式渲染、工具调用的可视化、审批、取消',
+    items: [
+      { slug: 'lessons/0015-stream-ui', title: '流式渲染与 tool_call 拼装', minutes: 40, wip: true },
+      { slug: 'lessons/0016-approval-cancel', title: '审批与取消', minutes: 35, wip: true },
+      { slug: 'lessons/0017-agent-panel', title: '聊天面板（作品）', minutes: 90, wip: true },
+    ],
+  },
+  {
+    id: 'ch6',
+    title: '第 6 章 · 工具与协议',
+    subtitle: '工具描述怎么影响选对率，以及 MCP',
+    items: [
+      { slug: 'lessons/0018-tool-design', title: '工具设计与选对率', minutes: 35, wip: true },
+      { slug: 'lessons/0019-mcp-server', title: '最小 MCP server', minutes: 45, wip: true },
+    ],
+  },
+  {
+    id: 'ch7',
+    title: '第 7 章 · 上下文工程与记忆',
+    subtitle: '上下文预算、压缩，以及 RAG 的最小链路',
+    items: [
+      { slug: 'lessons/0020-context-budget', title: '上下文预算', minutes: 40, wip: true },
+      { slug: 'lessons/0021-rag-minimal', title: 'RAG 最小链路', minutes: 50, wip: true },
+    ],
+  },
+  {
+    id: 'ch8',
+    title: '第 8 章 · 评测与可观测',
+    subtitle: 'trace 记录，以及能发现回退的回归评测',
+    items: [
+      { slug: 'lessons/0022-trace', title: 'trace 记录', minutes: 35, wip: true },
+      { slug: 'lessons/0023-eval-regression', title: '回归评测', minutes: 50, wip: true },
+    ],
+  },
+  {
+    id: 'ch9',
+    title: '第 9 章 · Harness 运行时',
+    subtitle: '工具注册、权限、沙箱、检查点与恢复',
+    items: [
+      { slug: 'lessons/0024-tools-permission', title: '工具注册与权限', minutes: 40, wip: true },
+      { slug: 'lessons/0025-checkpoint-resume', title: '检查点与恢复', minutes: 40, wip: true },
+      { slug: 'lessons/0026-harness-mini', title: '最小 Harness', minutes: 60, wip: true },
+    ],
+  },
+  {
+    id: 'ch10',
+    title: '第 10 章 · DSH 插件',
+    subtitle: '读 DSH 的架构地图，发布一个真正被使用的插件',
+    items: [
+      { slug: 'lessons/0027-dsh-map', title: 'DSH 阅读地图', minutes: 40, wip: true },
+      { slug: 'lessons/0028-plugin-release', title: '发布插件', minutes: 60, wip: true },
+    ],
+  },
+  {
+    id: 'ch11',
+    title: '第 11 章 · 综合项目',
+    subtitle: '深度研究智能体：接审批、接评测、接插件',
+    items: [
+      { slug: 'lessons/0029-deep-research', title: '深度研究智能体', minutes: 120, wip: true },
+    ],
+  },
+  {
+    id: 'ch12',
+    title: '第 12 章 · 面试冲刺',
+    subtitle: '八股追问链、手撕清单、项目深挖',
+    items: [
+      { slug: 'lessons/0030-interview-chain', title: '八股追问链', minutes: 60, wip: true },
+      { slug: 'lessons/0031-handwrite-list', title: '手撕清单', minutes: 60, wip: true },
     ],
   },
 ]
