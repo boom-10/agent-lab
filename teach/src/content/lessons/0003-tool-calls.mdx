@@ -255,12 +255,13 @@ npm run mock      # 终端 A
 
 工具调用不是模型直接执行函数，而是一个五步的协议：
 
-```text
-① 你声明 tools（name、description、parameters 用 JSON Schema 描述）
-② 模型判断要不要调用，输出 tool_calls：函数名 + 参数（参数是 JSON 字符串）
-③ 你的代码解析、校验参数，执行真实的函数
-④ 把结果作为 role 为 tool、带上 tool_call_id 的消息放回上下文
-⑤ 模型基于结果生成最终回答（或者再次调用工具）
+```mermaid
+flowchart TD
+    S1["① 声明 tools<br/>name、description、JSON Schema"] --> S2["② 模型输出 tool_calls<br/>函数名 + 参数（JSON 字符串）"]
+    S2 --> S3["③ 你的代码校验参数，执行真实函数"]
+    S3 --> S4["④ 结果以 role 为 tool 放回上下文<br/>带上 tool_call_id"]
+    S4 --> S5["⑤ 模型生成最终回答"]
+    S5 -- "还需要调用工具" --> S2
 ```
 
 第 ⑤ 步可能又回到 ②，这就是 Agent 循环（第 3 章）的雏形。

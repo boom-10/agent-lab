@@ -19,6 +19,7 @@
     "@mdx-js/react": "^3.1.1",
     "@tanstack/react-router": "^1.170.46",
     "@tanstack/react-start": "^1.169.4",
+    "mermaid": "^11.17.2",
     "react": "19.2.4",
     "react-dom": "19.2.4"
   },

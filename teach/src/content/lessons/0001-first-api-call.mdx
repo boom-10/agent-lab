@@ -119,15 +119,15 @@ prompt_tokens (10) = prompt_cache_hit_tokens (0) + prompt_cache_miss_tokens (10)
 
 你发出的请求，在服务端大致经过下面几步：
 
-```text
-你的代码                                 服务端
-   │  POST /chat/completions              │
-   │  { model, messages, 参数… }  ───▶    │ ① 分词：文本 → token ID 序列
-   │                                      │ ② prefill：一次算完全部输入，
-   │                                      │    得到「下一个 token」的概率分布
-   │                                      │ ③ 采样：按 temperature / top_p 选出一个
-   │                                      │ ④ decode：把它接到输入末尾，回到 ②
-   │  ◀──  choices / usage / finish_reason │ 直到停止条件触发
+```mermaid
+flowchart TD
+    A["你的代码：POST /chat/completions<br/>model、messages、参数"] --> B["① 分词：文本转成 token ID 序列"]
+    B --> C["② prefill：一次算完全部输入<br/>得到下一个 token 的概率分布"]
+    C --> D["③ 采样：按 temperature / top_p 选出一个 token"]
+    D --> E{"停止了吗？"}
+    E -- "否：把新 token 接到输入末尾" --> F["④ decode：算出下一个 token 的概率分布"]
+    F --> D
+    E -- "是" --> G["返回 choices、usage、finish_reason"]
 ```
 
 模型做的事情只有一件：在整个词表上给每个候选 token 打一个概率，然后取一个。它不是「读完整段话，再整体写出答案」，而是把这个循环重复很多次，每次只产生一个 token。停止有三种可能：模型输出结束符（`finish_reason` 为 `stop`），达到 `max_tokens`（为 `length`），或者模型决定调用工具（为 `tool_calls`）。

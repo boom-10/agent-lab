@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from 'react'
+import { isValidElement, useEffect, useRef, useState, type ReactNode } from 'react'
+import { Mermaid } from '@/components/Mermaid'
 
 /**
  * 代码块 —— 覆盖 MDX 的 `pre`，在右上角加一个「复制」按钮。
@@ -15,7 +16,28 @@ import { useEffect, useRef, useState } from 'react'
  *      `navigator.clipboard` 只在**安全上下文**（https / localhost）可用。
  *      用 IP 访问（比如 127.0.0.1 之外的局域网调试）时它是 undefined。
  */
-export function CodeBlock({ children, ...props }: React.ComponentPropsWithoutRef<'pre'>) {
+/**
+ * `pre` 的入口：普通代码块交给 PlainCodeBlock（复制按钮），
+ * ```mermaid 代码块交给 Mermaid（渲染成流程图）。
+ * 两者分开写，是因为 PlainCodeBlock 里有 hooks，不能在分支里提前返回。
+ */
+export function CodeBlock(props: React.ComponentPropsWithoutRef<'pre'>) {
+  if ((props as Record<string, unknown>)['data-language'] === 'mermaid') {
+    return <Mermaid source={textOf(props.children).trim()} />
+  }
+  return <PlainCodeBlock {...props} />
+}
+
+/** 取出 React 树里的纯文本（rehype-pretty-code 会把代码拆成很多 span） */
+function textOf(node: ReactNode): string {
+  if (node == null || typeof node === 'boolean') return ''
+  if (typeof node === 'string' || typeof node === 'number') return String(node)
+  if (Array.isArray(node)) return node.map(textOf).join('')
+  if (isValidElement(node)) return textOf((node.props as { children?: ReactNode }).children)
+  return ''
+}
+
+function PlainCodeBlock({ children, ...props }: React.ComponentPropsWithoutRef<'pre'>) {
   const ref = useRef<HTMLPreElement>(null)
   const [state, setState] = useState<'idle' | 'ok' | 'err'>('idle')
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
