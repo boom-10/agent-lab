@@ -2,6 +2,7 @@ import { createFileRoute, Link, notFound } from '@tanstack/react-router'
 import { getDoc } from '@/lib/content'
 import { findLesson, chapterOf, neighbours } from '@/content/manifest'
 import { useProgress } from '@/lib/progress'
+import { BookRefs } from '@/components/BookRefs'
 
 /**
  * 内容路由（catch-all）。
@@ -54,6 +55,9 @@ function DocPage() {
           </span>
         </div>
       )}
+
+      {/* 对应的书：读完对应章节再做这一节 */}
+      <BookRefs books={lesson?.books ?? []} />
 
       <Content />
 
