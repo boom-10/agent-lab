@@ -88,6 +88,31 @@ for (const slug of onDisk) {
   }
 }
 
+/* ── 5：bookRef 的键必须存在 ── */
+// 表写坏了（比如只剩一条）时，页面会在渲染期抛错 → 500。
+// 这类错误必须在检查阶段暴露，不能等到线上。
+{
+  const tableKeys = (name) => {
+    const m = src.match(new RegExp(`const ${name}[^=]*= \\{([\\s\\S]*?)\\n\\}`))
+    if (!m) return null
+    return new Set([...m[1].matchAll(/^\s{2}([A-Za-z0-9_]+):\s*\{/gm)].map((x) => x[1]))
+  }
+  const tables = { waylandz: tableKeys('WAYLANDZ'), 'hello-agents': tableKeys('HELLO_AGENTS') }
+  if (!tables.waylandz || !tables['hello-agents']) {
+    err('manifest.ts: 找不到 WAYLANDZ 或 HELLO_AGENTS 表，无法校验 bookRef')
+  } else {
+    for (const [name, keys] of Object.entries(tables)) {
+      if (keys.size === 0) err(`manifest.ts: ${name.toUpperCase()} 表是空的（bookRef 会在渲染期抛错）`)
+    }
+    for (const m of src.matchAll(/bookRef\('([^']+)',\s*'([^']+)'/g)) {
+      const [, book, key] = m
+      const table = tables[book]
+      if (!table) err(`manifest.ts: bookRef 的书名 "${book}" 不认识（只支持 waylandz / hello-agents）`)
+      else if (!table.has(key)) err(`manifest.ts: bookRef('${book}', '${key}') 指向不存在的章节`)
+    }
+  }
+}
+
 /* ── 输出 ── */
 const errors = problems.filter((p) => p.level === 'error')
 const warns = problems.filter((p) => p.level === 'warn')
