@@ -70,6 +70,15 @@ for (const slug of onDisk) {
     }
   }
 
+  // 尖括号自动链接：MDX 会把 <https://...> 当成 JSX 标签，构建时才报错。
+  // 这个错我们踩过三次，所以在检查阶段就拦住，报出准确行号。
+  text.split('\n').forEach((line, i) => {
+    const m = line.match(/^\s*(?:[-*]\s+)?.*<https?:\/\//)
+    if (m) {
+      err(`${slug}.mdx:${i + 1}: 用了 <https://…> 尖括号链接，MDX 不支持。改成 [描述](网址)`)
+    }
+  })
+
   // 标题锚点重复（rehype-slug 会给重复的加 -1 后缀，TOC 就会跳错）
   const heads = [...text.matchAll(/^#{2,3}\s+(.+)$/gm)].map((m) => m[1].trim())
   const seen = new Set()

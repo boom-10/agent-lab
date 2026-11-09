@@ -148,6 +148,21 @@ prefill 处理全部输入，所以 TTFT 的主要部分随输入长度增长。
 
 输入的 prefill 是并行的，输出的 decode 是串行的，而且每个输出 token 都要重新读一遍前面全部的 KV。所以在同样的 token 数下，输出的计算和访存成本都更高。这解释了为什么输出价格通常高于输入（具体价格以官网为准）。
 
+## 原理：延迟不是唯一的指标 —— 吞吐
+
+前面讲的都是「一个请求」的延迟。服务端真正被考核的还有另一个指标：**吞吐（throughput）**，单位时间能处理多少 token 或多少个请求。
+
+两者方向相反：
+
+- 一次只处理一个请求，延迟最低，但显卡大量时间在等显存，算力闲着。
+- 一次把多个请求拼成一批（batching）处理，吞吐上去了，但每个请求要多等别人。
+
+工程上常见的做法是 **continuous batching**（也叫 iteration-level scheduling）：不按「整批请求」为单位，而是按「每个 decode 步」为单位调度。一个请求生成完了，立刻有新请求补进来，不用等整批结束。PagedAttention 那篇论文里描述的就是这套调度（见延伸阅读）。
+
+还有一个取舍是 **长 prefill 会挡住 decode**：一个 30K token 的输入在做 prefill 时，同一批里其他请求的 decode 都得等。常见的缓解办法是把长 prefill 切成小块插入调度（chunked prefill），这样单请求的首字会晚一点，但其他请求不会被卡住。这个做法我们没有实测，只作为工程常识提一句。
+
+对你的实际意义：如果面试问「怎么提高吞吐」，答案不是「把 TTFT 优化到最低」，而是「提高批大小、用连续批处理、不要让长 prefill 独占」。这两件事经常要一起谈。
+
 ## 实验：decode 的代价（我们跑过了）
 
 第 0005 节前面说，输出变长影响总耗时，不影响首字。我们用 `npm run probe:decode` 测了一次，两档各跑三次（TTFT 报最小值，其余报中位数）：
@@ -178,6 +193,7 @@ max_tokens   输出 token   TTFT(最小)   每 token 时间(中位)   总耗时(
 ## 延伸阅读
 
 - [Attention Is All You Need（Transformer 原始论文）](https://arxiv.org/abs/1706.03762)
+- [PagedAttention（vLLM，连续批处理的调度）](https://arxiv.org/abs/2309.06180)
 ## 检验一下
 
 <Quiz

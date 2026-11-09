@@ -115,9 +115,9 @@ export const chapters: Chapter[] = [
     title: '第 1 章 · 推理的成本结构',
     subtitle: 'prefill 与 decode、KV cache 的显存、TTFT 的预算',
     items: [
-      { slug: 'lessons/0005-prefill-decode', title: 'Prefill 与 Decode', minutes: 45 },
+      { slug: 'lessons/0005-prefill-decode', title: 'Prefill 与 Decode', minutes: 45, books: [bookRef('ch39', '缓存命中的工程规则，决定 prefill 成本')] },
       { slug: 'lessons/0006-kv-cache', title: 'KV Cache 与显存', minutes: 50 },
-      { slug: 'lessons/0007-ttft-budget', title: 'TTFT 的预算', minutes: 45 },
+      { slug: 'lessons/0007-ttft-budget', title: 'TTFT 的预算', minutes: 45, books: [bookRef('ch22', '把延迟做成指标（P95/P99）'), bookRef('ch23', '预算控制的工程实现')] },
     ],
   },
   {
