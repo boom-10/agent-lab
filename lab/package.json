@@ -33,7 +33,12 @@
     "plugin:web": "dsh web --patch ./starters/dsh-plugin-starter/cordis.local.yml",
     "dsh:help": "dsh --help",
     "typecheck": "tsc --noEmit",
-    "doctor": "node scripts/doctor.mjs"
+    "doctor": "node scripts/doctor.mjs",
+    "fault:server": "node toolkit/fault-server.mjs",
+    "fault:reset": "node scripts/free-mock-port.mjs 39002",
+    "probe:resilience": "node toolkit/probe-resilience.mjs",
+    "ex:client": "node exercises/03-resilience/client.ts",
+    "probe:retry-gain": "node toolkit/probe-retry-gain.mjs"
   },
   "devDependencies": {
     "@deepseek-ai/dsh": "0.2.1-rc.5",

@@ -436,3 +436,33 @@ TanStack Router 的客户端导航里：
 
 **踩过的坑**：改 manifest 的书表时写错了替换逻辑，WAYLANDZ 表变成空表，所有引用它的页面在渲染期抛错 → 500。
 已在 `check:mdx` 加规则：`bookRef` 的键必须存在，表为空直接报错。这类错误必须停在检查阶段。
+
+## ★ 第 2 章交付：能扛的客户端（2026-11-11）
+
+两节：0008 生产级 LLM 客户端、0009 取消与重试。
+
+**为什么这一章能对上书**：waylandz 第 42 章「Agent 超时与 Watchdog」是同一主题的 Agent 层版本，但它是 Agent 循环视角，不涉及 HTTP 客户端细节。所以书的映射只是延伸，主体内容是一手实测。
+
+**先建了故障注入服务器**（`toolkit/fault-server.mjs`，39002 端口），因为原 mock server 只会正常返回，
+没有东西可以重试。场景：ok / 429 / 500 / slow / drop / flaky / unstable / slowbody。
+
+**实测出来的关键事实**（课里都用了）：
+- fetch 对 429/500 **不抛错**，只把 res.ok 设成 false
+- 超时 → TimeoutError(code 23)；手动取消 → AbortError(code 20)；断流 → TypeError: terminated
+- 已 abort 的 signal 复用 → 1ms 就抛错，请求根本不发出去
+- AbortSignal.any 合成后，错误名会保留触发源，所以仍能区分超时/取消
+- 重试收益：p=0.5 时 1/3/5 次的成功率 50%/90%/95%，理论 50/87.5/96.9（实测 40 次/档）
+- 中途取消：完整 3015ms/10 字 vs 700ms 取消 1005ms/3 字，省约 2100ms
+
+**踩到的坑**：
+- Node 的 --experimental-strip-types 不支持 TS「参数属性」（constructor(public kind: Kind)），
+  会报 ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX。脚手架改成普通字段声明。
+- 用正则去掉 `wip: true` 时留下了双逗号，构建报 Unexpected token。
+- 用 `npm run fault:serve` 当锚点替换会命中 `fault:server`（前缀匹配）。
+
+**自查（按学习者要求做的）**：以初学者身份通读两节，改了 13 处——
+0008：标题「四种」和表格 6 行不符、缺可运行的超时代码、1−p^n 没解释、熔断没定义、
+实验没写要先启服务器、总预算没给实现思路、缺决策流程图、端口冲突没提、静默成功的后果没说清；
+0009：两件事表述、缺触发取消的代码、引用按编号易变、AbortSignal.any 兼容性、
+已到内容的代码骨架、重试前提没突出、产出说明。
+另外软化了两个过满的说法（「只会让限流更严」「工业界的做法」），并加了章末的「能教别人」六问清单。

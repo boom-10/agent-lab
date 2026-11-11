@@ -153,8 +153,8 @@ export const chapters: Chapter[] = [
     title: '第 2 章 · 能扛的客户端',
     subtitle: '超时、重试、取消、限流，以及故障注入测试',
     items: [
-      { slug: 'lessons/0008-llm-client', title: '生产级 LLM 客户端', minutes: 35, wip: true, books: [bookRef('waylandz', 'ch42')] },
-      { slug: 'lessons/0009-cancel-retry', title: '取消与重试', minutes: 30, wip: true, books: [bookRef('waylandz', 'ch42')] },
+      { slug: 'lessons/0008-llm-client', title: '生产级 LLM 客户端', minutes: 35, books: [bookRef('waylandz', 'ch42')] },
+      { slug: 'lessons/0009-cancel-retry', title: '取消与重试', minutes: 30, books: [bookRef('waylandz', 'ch42')] },
     ],
   },
   {
