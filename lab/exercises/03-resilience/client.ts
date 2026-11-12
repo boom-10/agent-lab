@@ -178,8 +178,9 @@ export async function callWithRetry(
       }
 
       // ⑥ 该重试：算这次等多久
-      //    · 429 且带 retryAfterMs → 用它
+      //    · 如果 e 是 ClientError 且带 retryAfterMs（429 才有）→ 就用它
       //    · 否则 baseMs × 2^(attempt−1)，再加 ±20% 随机抖动
+      //    提示：e 可能不是 ClientError（比如 TimeoutError），读之前先判断
       const delay = 0 // ← 你写
 
       // ⑦ 守总预算：等下去会超过 MAX_WAIT_TOTAL 就放弃
