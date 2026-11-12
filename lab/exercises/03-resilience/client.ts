@@ -113,12 +113,40 @@ export async function callOnce(
   scenario: string,
   signal: AbortSignal,
 ): Promise<{ text: string; status: number } | undefined> {
-  const response = await fetch(url(scenario), {
-    method: "POST",
-    body: JSON.stringify({ model: "x", stream: true, messages: [] }),
+  // ① 发请求 —— 这部分你已经写对了，我只补了 Content-Type
+  const res = await fetch(url(scenario), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model: 'x', stream: true, messages: [{ role: 'user', content: 'hi' }] }),
     signal,
-  });
-  return { text: await response.text(), status: response.status };
+  })
+
+  // ② 「不是 2xx」要自己判断并抛错 —— 这一块现在还完全没有
+  //    你现在的代码会走到 ③，把 429 的 JSON 当成流去解析，所以自检显示「没有抛错」。
+  if (!res.ok) {
+    // 429         → new ClientError('retry', 消息, 429, retryAfterMs)
+    //                retryAfterMs 来自 res.headers.get('retry-after')，单位是秒，要 ×1000
+    // 400/401/422 → new ClientError('fatal', 消息, status)
+    // 500/502/503 → new ClientError('retry', 消息, status)
+    //
+    // ← 你写（大约 6~8 行）
+  }
+
+  // ③ 解析 SSE，只留内容 —— 你现在用 response.text() 直接返回了原始文本
+  //    所以自检看到的 text 是「data: {"id":...}」而不是「一二三四五」。
+  //    做法照搬 01-raw-api/stream.ts：
+  //      · 用 TextDecoder({ stream: true }) 逐块解码，拼到 buf
+  //      · buf.split('\n\n') 切出完整事件，最后一段留在 buf
+  //      · 每个以 'data: ' 开头的：'[DONE]' 跳过；否则 JSON.parse，
+  //        累加 choices[0].delta.content（有些块 content 是空的或者没有 choices）
+  let buf = ''
+  let text = ''
+  const dec = new TextDecoder()
+  for await (const piece of res.body as AsyncIterable<Uint8Array>) {
+    // ← 你写（大约 12 行）
+  }
+
+  return { text, status: res.status }
 }
 
 // ══════════════════════════════════════════════════════════════════════════
