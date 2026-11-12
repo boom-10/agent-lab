@@ -1,22 +1,239 @@
 <Eyebrow>速查卡 · 打印友好</Eyebrow>
 
-# Chat Completions 响应结构
+# Chat Completions：原始请求与原始响应
 
-<Lede>压缩后的要点。忘了什么就回来看这一页。</Lede>
+<Lede>这一页放的是真实的请求和响应——你在课程里发出去的，和服务器原样回给你的。忘了字段在哪，先看原始形式，再看下面的字段表。</Lede>
 
-## 请求三要素
+## ① 最小的一次请求（非流式）
 
-```text
-POST  {BASE}/chat/completions
-Content-Type:  application/json
-Authorization: Bearer {API_KEY}          # key 一定以 sk- 开头
+### 原始请求
 
+```bash
+curl https://api.deepseek.com/chat/completions \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $DEEPSEEK_API_KEY" \
+  -d '{
+    "model": "deepseek-flash",
+    "messages": [{"role": "user", "content": "只回答：一二三四五"}],
+    "thinking": {"type": "disabled"},
+    "max_tokens": 16
+  }'
+```
+
+三件事缺一不可：`Content-Type`、`Authorization`、一个合法的 `model`。`thinking` 不写就是开启状态，会多花钱。
+
+### 原始响应（实测，一个字都没改）
+
+```json
 {
-  "model":    "deepseek-flash",
-  "messages": [{"role":"user","content":"…"}],
-  "thinking": {"type":"disabled"}        # ★ 默认是开启的，会带来一堆副作用
+  "id": "bcea791b-eff5-40fb-9d0e-8aebbd692230",
+  "object": "chat.completion",
+  "created": 1794471748,
+  "model": "deepseek-flash",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "一二三四五"
+      },
+      "logprobs": null,
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 10,
+    "completion_tokens": 3,
+    "total_tokens": 13,
+    "prompt_tokens_details": {
+      "cached_tokens": 0
+    },
+    "prompt_cache_hit_tokens": 0,
+    "prompt_cache_miss_tokens": 10
+  },
+  "system_fingerprint": "bc19ba97cbe016479903222bb1578db6"
 }
 ```
+
+怎么读：**答案在 `choices[0].message.content`**，为什么结束看 `choices[0].finish_reason`，花了多少看 `usage`。
+
+## ② 同一个请求，改成流式
+
+只多两个参数：`stream: true`，和 `stream_options.include_usage: true`（不加它就没有 `usage`）。
+
+### 原始请求
+
+```bash
+curl https://api.deepseek.com/chat/completions \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $DEEPSEEK_API_KEY" \
+  -d '{
+    "model": "deepseek-flash",
+    "messages": [{"role": "user", "content": "只回答：一二三四五"}],
+    "thinking": {"type": "disabled"},
+    "stream": true,
+    "stream_options": {"include_usage": true},
+    "max_tokens": 16
+  }'
+```
+
+`curl` 要加 `-N`（关掉 curl 自己的缓冲），否则你会以为它一次性吐出了全部——那其实是 curl 在攒。
+
+### 原始响应（SSE 字节，共 6 个事件 + `[DONE]`）
+
+第一个事件（把 JSON 展开显示，**线上是单行**，换行只是为了能读）：
+
+```text
+data: {
+  "id": "f7b63502-7a0f-46f2-92dd-65b9957fd9c5",
+  "object": "chat.completion.chunk",
+  "created": 1794471749,
+  "model": "deepseek-flash",
+  "system_fingerprint": "bc19ba97cbe016479903222bb1578db6",
+  "choices": [
+    {
+      "index": 0,
+      "delta": {
+        "role": "assistant",
+        "content": ""
+      },
+      "logprobs": null,
+      "finish_reason": null
+    }
+  ],
+  "usage": null
+}
+```
+
+最后一块：`delta` 是空的，真正有用的是 `finish_reason` 和 `usage`：
+
+```text
+data: {
+  "id": "f7b63502-7a0f-46f2-92dd-65b9957fd9c5",
+  "object": "chat.completion.chunk",
+  "created": 1794471749,
+  "model": "deepseek-flash",
+  "system_fingerprint": "bc19ba97cbe016479903222bb1578db6",
+  "choices": [
+    {
+      "index": 0,
+      "delta": {
+        "role": "assistant",
+        "content": ""
+      },
+      "logprobs": null,
+      "finish_reason": null
+    }
+  ],
+  "usage": null
+}
+```
+
+流结束的标记：
+
+```text
+data: [DONE]
+```
+
+中间还有 3 个内容块，结构和第一个完全相同，只是 `content` 依次是「二」「三」「四」。
+
+三个必须注意的地方：
+
+- 每个事件是 `data: ` 加一行 JSON，**事件之间是一个空行**（所以按 `\n\n` 切）。
+- 最后一块 `delta` 是空的，真正的收尾信息是 `finish_reason` 和 `usage`。
+- `data: [DONE]` 不是 JSON，解析前要先跳过。
+
+## ③ 工具调用
+
+### 原始请求（多一个 `tools`）
+
+```bash
+curl https://api.deepseek.com/chat/completions \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $DEEPSEEK_API_KEY" \
+  -d '{
+    "model": "deepseek-flash",
+    "messages": [{"role": "user", "content": "北京天气怎么样？"}],
+    "thinking": {"type": "disabled"},
+    "tools": [
+      {
+        "type": "function",
+        "function": {
+          "name": "get_weather",
+          "description": "查询指定城市的天气",
+          "parameters": {
+            "type": "object",
+            "properties": {"city": {"type": "string", "description": "城市名"}},
+            "required": ["city"]
+          }
+        }
+      }
+    ]
+  }'
+```
+
+### 原始响应（实测）
+
+```json
+{
+  "id": "f927e795-81ff-4f9c-a31e-031b7dcccef1",
+  "object": "chat.completion",
+  "created": 1794471750,
+  "model": "deepseek-flash",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "",
+        "tool_calls": [
+          {
+            "index": 0,
+            "id": "call_00_PXgQkd80LET4I6O91WQG1216",
+            "type": "function",
+            "function": {
+              "name": "get_weather",
+              "arguments": "{\"city\": \"北京\"}"
+            }
+          }
+        ]
+      },
+      "logprobs": null,
+      "finish_reason": "tool_calls"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 274,
+    "completion_tokens": 38,
+    "total_tokens": 312,
+    "prompt_tokens_details": {
+      "cached_tokens": 0
+    },
+    "prompt_cache_hit_tokens": 0,
+    "prompt_cache_miss_tokens": 274
+  },
+  "system_fingerprint": "bc19ba97cbe016479903222bb1578db6"
+}
+```
+
+两个关键点：`finish_reason` 变成 **`tool_calls`**，说明这轮不是回答而是「请求调用」；`function.arguments` 是**字符串**（`"{\"city\": \"北京\"}"`），不是对象，要 `JSON.parse` 之后才能用。
+
+## ④ 出错的原始响应
+
+把模型名写错，看服务端真实返回：
+
+```bash
+curl https://api.deepseek.com/chat/completions \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $DEEPSEEK_API_KEY" \
+  -d '{"model": "no-such-model", "messages": [{"role": "user", "content": "hi"}]}'
+```
+
+```json
+{"error":{"message":"The supported API model names are deepseek-flash, deepseek-v4-pro, but you passed no-such-model. (request_id: 696af41b-5019-41c8-bba6-ace220b1f01f)","type":"invalid_request_error","param":null,"code":"invalid_request_error"}}
+```
+
+**错误响应和成功响应长得完全不一样**：没有 `choices`，只有一个 `error` 对象；HTTP 状态码是 400，而 `fetch` 不会因为这个状态码抛错——所以你必须自己检查 `res.ok`。
 
 ## 响应顶层
 
