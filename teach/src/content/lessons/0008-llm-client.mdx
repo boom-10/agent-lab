@@ -61,6 +61,8 @@ npm run probe:resilience
 | `e.name === 'AbortError'` | **用户或你自己取消的** | **不要重试** |
 | `e instanceof TypeError`，message 含 `terminated` | 连接断了 | 重试 |
 
+**忘了某个值从哪拿，翻速查卡：[失败与取消的字段](/reference/error-shapes)。** 那一页把 `res.status`、`e.name`、`signal.reason`、`d.choices[0].delta.content` 这些位置全列出来了，都来自实测。
+
 两个最反直觉的点：
 
 1. **`fetch` 对 429 和 500 不抛错。** 它只把 `res.ok` 设成 false，你得自己判断、自己抛。很多人的客户端在这里「静默成功」——把那个错误 JSON 当成正常回答显示给用户，界面上看起来一切正常，实际一句有效内容都没有。

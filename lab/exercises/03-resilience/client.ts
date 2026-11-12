@@ -26,6 +26,20 @@
  * ⑤ 两次重试之间要退避（不能连发），并且要有上限
  * ⑥ 断流（读到一半连接没了）也算可重试，但已经吐出去的内容不能算数
  *
+ * ── 字段速查（不知道从哪拿，就看这里；完整版：站点 /reference/error-shapes）──
+ *   res.status                        HTTP 状态码（fetch 不会因为它抛错）
+ *   res.ok                            4xx / 5xx 都是 false
+ *   res.headers.get('retry-after')    字符串，单位秒 → Number(x) * 1000
+ *   res.headers.get('content-type')   判断是不是 text/event-stream
+ *   for await (const p of res.body)   流式数据块，p 是 Uint8Array，要 TextDecoder
+ *   e.name                            'TimeoutError' / 'AbortError' / 'TypeError'
+ *   e.message                         英文说明，别直接给用户看
+ *   e.cause?.message                  断流的底层原因，比如 'other side closed'
+ *   signal.aborted                    布尔，最省事的「停了吗」
+ *   d.choices?.[0]?.delta?.content    流式内容；最后一块是 undefined，要用 ?. 和 ??
+ *   d.choices?.[0]?.finish_reason     null / 'stop' / 'length'
+ *   d.usage                           只在最后一块，且要 stream_options
+ *
  * ── 怎么调试 ──
  * 先把 maxAttempts 设成 1 跑一遍，确认能拿到单次的错误类型；
  * 再放开重试，看 attempts 是不是按预期增长。
@@ -115,15 +129,34 @@ export async function callOnce(
 ): Promise<{ text: string; status: number } | undefined> {
   // ① 发请求 —— 这部分你已经写对了，我只补了 Content-Type
   const res = await fetch(url(scenario), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ model: 'x', stream: true, messages: [{ role: 'user', content: 'hi' }] }),
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: "x",
+      stream: true,
+      messages: [{ role: "user", content: "hi" }],
+    }),
     signal,
-  })
+  });
 
   // ② 「不是 2xx」要自己判断并抛错 —— 这一块现在还完全没有
   //    你现在的代码会走到 ③，把 429 的 JSON 当成流去解析，所以自检显示「没有抛错」。
   if (!res.ok) {
+    if (res.status === 429) {
+      const retryAfterMs = Number(res.headers.get("retry-after")) * 1000;
+      throw new ClientError(
+        "retry",
+        "服务器正忙，请稍后再试",
+        429,
+        retryAfterMs,
+      );
+    } else if (res.status >= 400 && res.status < 500) {
+      const msg = await res.text();
+      throw new ClientError("fatal", msg, res.status);
+    } else if (res.status >= 500 && res.status < 600) {
+      const msg = await res.text();
+      throw new ClientError("retry", msg, res.status);
+    }
     // 429         → new ClientError('retry', 消息, 429, retryAfterMs)
     //                retryAfterMs 来自 res.headers.get('retry-after')，单位是秒，要 ×1000
     // 400/401/422 → new ClientError('fatal', 消息, status)
@@ -139,14 +172,40 @@ export async function callOnce(
   //      · buf.split('\n\n') 切出完整事件，最后一段留在 buf
   //      · 每个以 'data: ' 开头的：'[DONE]' 跳过；否则 JSON.parse，
   //        累加 choices[0].delta.content（有些块 content 是空的或者没有 choices）
-  let buf = ''
-  let text = ''
-  const dec = new TextDecoder()
+  let buf = "";
+  let text = "";
+  const dec = new TextDecoder();
   for await (const piece of res.body as AsyncIterable<Uint8Array>) {
-    // ← 你写（大约 12 行）
+    buf += dec.decode(piece, { stream: true });
+
+    const parts = buf.split("\n\n") || [""];
+    // 处理完整的事件
+    for (let i = 0; i < parts.length - 1; i++) {
+      const line = parts[i] || "";
+      if (line.length > 0 && line.startsWith("data: ")) {
+        const data = line.slice(6);
+        if (data === "[DONE]") {
+          // 流结束
+          break;
+        }
+        try {
+          const chunk = JSON.parse(data);
+          if (chunk.usage) {
+            // usage = chunk.usage;
+          }
+          // 处理 chunk
+          // chunks++;
+          text += chunk.choices[0].delta.content || "";
+        } catch (e) {
+          console.error("解析 chunk 失败:", e);
+        }
+      }
+    }
+    // 保留不完整的最后一部分
+    buf = parts[parts.length - 1] || "";
   }
 
-  return { text, status: res.status }
+  return { text, status: res.status };
 }
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -175,54 +234,74 @@ export async function callOnce(
 
 export async function callWithRetry(
   scenario: string,
-  opts: { timeoutMs: number; maxAttempts: number; baseMs?: number; signal?: AbortSignal },
+  opts: {
+    timeoutMs: number;
+    maxAttempts: number;
+    baseMs?: number;
+    signal?: AbortSignal;
+  },
 ): Promise<CallOk | undefined> {
-  const baseMs = opts.baseMs ?? 200
-  const MAX_WAIT_TOTAL = 5000
-  let waited = 0 // 已经等了多少毫秒，用来守总预算
+  const baseMs = opts.baseMs ?? 200;
+  const MAX_WAIT_TOTAL = 5000;
+  let waited = 0; // 已经等了多少毫秒，用来守总预算
 
   for (let attempt = 1; attempt <= opts.maxAttempts; attempt++) {
     // ① 这次尝试用的 signal
     //    · 没传 opts.signal → 直接用 AbortSignal.timeout(opts.timeoutMs)
     //    · 传了 opts.signal → 用 AbortSignal.any([...]) 合成「用户取消」和「超时」
     //    ★ 每次循环都新建，不要提到循环外面（超时从创建那一刻开始算）
-    const signal = undefined as unknown as AbortSignal // ← 你写
-
+    let signal: AbortSignal;
+    if (opts.signal) {
+      signal = AbortSignal.any([
+        opts.signal,
+        AbortSignal.timeout(opts.timeoutMs),
+      ]);
+    } else {
+      signal = AbortSignal.timeout(opts.timeoutMs);
+    }
+    // ② 尝试调用 API
     try {
       // ② 发一次。callOnce 是 TODO 2，它负责把「非 2xx」变成 ClientError 抛出来
-      const r = await callOnce(scenario, signal)
-      if (!r) throw new Error('TODO 2 还没写')
+      const r = await callOnce(scenario, signal);
+      if (!r) throw new Error("TODO 2 还没写");
 
       // ③ 成功：返回结果，并告诉调用方用了几次
-      return { ok: true, text: r.text, attempts: attempt }
+      return { ok: true, text: r.text, attempts: attempt };
     } catch (e) {
       // ④ 这次失败是什么身份？classify 是 TODO 1
-      const kind = classify(e) ?? 'fatal'
+      const kind = classify(e) ?? "fatal";
 
       // ⑤ 不该重试（fatal / cancel），或已经是最后一次 → 抛出去，别再循环
       //    ★ 必须抛 ClientError，自检读的是它的 kind
-      if (kind !== 'retry' || attempt === opts.maxAttempts) {
+      if (kind !== "retry" || attempt === opts.maxAttempts) {
         // ← 你写（抛 ClientError）
+        throw new ClientError(kind, e instanceof Error ? e.message : String(e));
       }
 
       // ⑥ 该重试：算这次等多久
       //    · 如果 e 是 ClientError 且带 retryAfterMs（429 才有）→ 就用它
       //    · 否则 baseMs × 2^(attempt−1)，再加 ±20% 随机抖动
       //    提示：e 可能不是 ClientError（比如 TimeoutError），读之前先判断
-      const delay = 0 // ← 你写
-
+      let delay = 0; // ← 你写
+      if (e instanceof ClientError && e.retryAfterMs) {
+        delay = e.retryAfterMs;
+      } else {
+        delay = Math.min(baseMs * Math.pow(2, attempt - 1), MAX_WAIT_TOTAL);
+        delay *= 1 + Math.random() * 0.4 - 0.2;
+      }
       // ⑦ 守总预算：等下去会超过 MAX_WAIT_TOTAL 就放弃
       if (waited + delay > MAX_WAIT_TOTAL) {
         // ← 你写（抛 ClientError）
+        throw new ClientError("retry", "用完了重试时间");
       }
 
-      waited += delay
-      await new Promise((r) => setTimeout(r, delay))
+      waited += delay;
+      await new Promise((r) => setTimeout(r, delay));
     }
   }
 
   // 兜底：理论上走不到（最后一次会在 ⑤ 抛）
-  throw new ClientError('retry', '用完了重试次数')
+  throw new ClientError("retry", "用完了重试次数");
 }
 
 // ══════════════════════════════════════════════════════════════════════════

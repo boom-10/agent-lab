@@ -1,0 +1,133 @@
+<Eyebrow>速查卡 · 打印友好</Eyebrow>
+
+# 失败与取消：字段到底在哪
+
+<Lede>写客户端时最常卡住的不是逻辑，是「这个值从哪个字段拿」。这一页把每个值的位置列全，全部来自实测（<code>npm run probe:shapes</code>）。</Lede>
+
+## 先记一句话
+
+**字段在哪，取决于「错在哪一层」。**
+
+- 服务器**回了话**（哪怕是 429）→ 没有异常，去看 `res.status`。
+- 客户端**没等到回话**（超时、断流、取消）→ 抛异常，去看 `e.name`。
+
+分不清这两层，就会写出「永远进不了 catch」或者「把错误 JSON 当正常回答」的代码。
+
+## fetch 给你的 Response
+
+`fetch` 只有在**网络层失败**时才抛错。只要服务器返回了任何 HTTP 状态码，你都会拿到一个 `Response` 对象：
+
+| 字段 | 类型 | 429 时的实测值 | 用途 |
+| --- | --- | --- | --- |
+| `res.status` | number | `429` | 判断具体状态 |
+| `res.ok` | boolean | `false` | 最省事的「成功没有」 |
+| `res.statusText` | string | `"Too Many Requests"` | 给人看的，不可靠 |
+| `res.headers` | Headers | — | 用 `.get()` 取具体头 |
+| `res.body` | ReadableStream | — | 流式时 `for await` 它 |
+
+响应头要注意：**`.get()` 返回的是字符串，没有这个头返回 `null`。**
+
+```ts
+res.headers.get('retry-after')   // "1"   ← 字符串！单位是秒
+Number(res.headers.get('retry-after')) * 1000   // 1000 毫秒
+```
+
+## 四种失败，字段在哪
+
+| 失败 | 判断依据 | 实测字段 |
+| --- | --- | --- |
+| 超时 | `e.name === 'TimeoutError'` | `message: "The operation was aborted due to timeout"`，`code: 23` |
+| 用户取消 | `e.name === 'AbortError'` | `message: "This operation was aborted"`，`code: 20` |
+| 断流 | `e instanceof TypeError` | `message: "terminated"`，`cause.name: "SocketError"`，`cause.message: "other side closed"` |
+| HTTP 错误 | `res.ok === false` | 不在异常里，在 `res.status` |
+
+两个容易忽略的点：
+
+- **超时和取消都是 `DOMException`，也都被 `instanceof Error` 认**，所以「`e instanceof Error` 就重试」这种写法区分不了它们。只能看 `e.name`。
+- **断流的底层原因在 `e.cause` 里**。`e.message` 只有一句 `terminated`，看不出是不是对方主动关的；`e.cause.message` 才有 `other side closed`。
+
+## AbortSignal 自己的字段
+
+一个 signal 被中止之后，它自己也带着信息：
+
+| 字段 | 实测值 | 说明 |
+| --- | --- | --- |
+| `signal.aborted` | `true` | 布尔，最省事的「停了吗」 |
+| `signal.reason` | 一个错误对象 | 有 `.name` 和 `.message`，和抛出来的错误同源 |
+
+所以循环重试前可以用 `if (signal.aborted) return` 提前退出，不用先发一次请求再说。
+
+## 你自己定义的 ClientError
+
+把「失败」变成一种**你自己可控的类型**，是这一章的核心技巧。建议带四个字段：
+
+| 字段 | 取值 | 谁用 |
+| --- | --- | --- |
+| `kind` | `'retry' \| 'fatal' \| 'cancel'` | 重试逻辑读这个决定怎么办 |
+| `message` | 一句说明 | 日志、调试 |
+| `status` | `429` / `500` / … | 排查时看 |
+| `retryAfterMs` | 毫秒数 | 只有 429 有；退避时优先用它 |
+
+<Callout kind="do" title="为什么要包一层">
+
+原始的 `DOMException` 和 `TypeError` 只有 `name` 和 `message`。你的重试逻辑需要的是「该怎么办」，而不是「叫什么名字」。
+
+包一层之后，上层代码就只用判断 `kind`，不用认识 `TimeoutError` 这种细节。
+
+</Callout>
+
+## 流式事件里的内容在哪
+
+每个 `data:` 事件是一个 JSON，结构是：
+
+```ts
+{
+  choices: [
+    {
+      index: 0,
+      delta: { content?: string },   // ← 内容在这；可能是 undefined
+      finish_reason: string | null,  // 最后一块才有值
+    },
+  ],
+  usage?: { ... },                   // 只在最后一块出现
+}
+```
+
+实测的两种情况：
+
+| 事件 | `delta.content` | `finish_reason` | `usage` |
+| --- | --- | --- | --- |
+| 普通内容块 | `"一"` | `null` | 无 |
+| 最后一块 | **`undefined`** | `"stop"` | 有 |
+
+所以读取一定要写成 `d.choices?.[0]?.delta?.content ?? ''`。写成 `d.choices[0].delta.content` 会在最后一块崩，因为那一块**没有内容**。
+
+## 一张总表：我要的值去哪拿
+
+| 我想要 | 从哪拿 | 坑 |
+| --- | --- | --- |
+| HTTP 状态码 | `res.status` | `fetch` 不会因为它抛错 |
+| 成功没有 | `res.ok` | 4xx/5xx 都是 `false` |
+| 服务端让我等多久 | `res.headers.get('retry-after')` | 字符串、单位秒、要 ×1000 |
+| 某响应头 | `res.headers.get('x-y')` | 没有就是 `null` |
+| 流式数据块 | `for await (const p of res.body)` | `p` 是 `Uint8Array`，要 `TextDecoder` |
+| 错误类型 | `e.name` | `TimeoutError` / `AbortError` / `TypeError` |
+| 错误说明 | `e.message` | 英文，别直接给用户看 |
+| 断流底层原因 | `e.cause?.message` | 如 `other side closed` |
+| 是不是停了 | `signal.aborted` | 布尔 |
+| 停的原因 | `signal.reason` | 错误对象，有 `.name` |
+| 流式文本 | `d.choices?.[0]?.delta?.content ?? ''` | 可能 `undefined` |
+| 是否结束 | `d.choices?.[0]?.finish_reason` | `null` / `"stop"` / `"length"` |
+| token 用量 | `d.usage` | 只在最后一块，且要 `stream_options` |
+
+## 怎么自己验证
+
+别背这张表，跑一遍：
+
+```bash
+cd ~/Desktop/Personal/agent-lab/lab
+npm run fault:server     # 终端 1
+npm run probe:shapes     # 终端 2
+```
+
+它会打印 Response 的字段、四种失败的字段、signal 的字段，以及一个真实 SSE 事件。这一页的数字就是它的输出。

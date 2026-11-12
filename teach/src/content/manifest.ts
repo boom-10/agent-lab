@@ -276,6 +276,7 @@ export const chapters: Chapter[] = [
 /** 速查卡：不占章节，随时可查 */
 export const references: Lesson[] = [
   { slug: 'reference/api-response', title: 'Chat Completions 响应', badge: '参考' },
+  { slug: 'reference/error-shapes', title: '失败与取消的字段', badge: '参考' },
 ]
 
 /* ─────────── 派生数据 ─────────── */

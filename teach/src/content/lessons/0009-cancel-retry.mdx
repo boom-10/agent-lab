@@ -45,6 +45,14 @@ npm run probe:resilience
 2. **已经收到的内容是真的**：3 个字符已经拿到了，可以显示给用户。
 3. **省下的是生成时间**：另外 7 个字不再等、不再读。
 
+<Callout kind="note" title="字段在哪">
+
+`signal.aborted` 是布尔，`signal.reason` 是错误对象；`e.name` 区分超时和取消，断流的底层原因在 `e.cause.message` 里。
+
+完整的位置表在速查卡：**[失败与取消的字段](/reference/error-shapes)**。
+
+</Callout>
+
 ## 原理：AbortController 做了什么，没做什么
 
 你做的事只有两行：建一个 `AbortController`，把它的 `signal` 交给 `fetch`；要停的时候调用 `abort()`。
