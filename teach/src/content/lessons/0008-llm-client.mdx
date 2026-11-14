@@ -61,7 +61,27 @@ npm run probe:resilience
 | `e.name === 'AbortError'` | **用户或你自己取消的** | **不要重试** |
 | `e instanceof TypeError`，message 含 `terminated` | 连接断了 | 重试 |
 
-**忘了某个值从哪拿，翻速查卡：[失败与取消的字段](/reference/error-shapes)。** 那一页把 `res.status`、`e.name`、`signal.reason`、`d.choices[0].delta.content` 这些位置全列出来了，都来自实测。
+### 这一节要用的字段
+
+成功的那一路（拿到了 `Response`）：
+
+| 我想要 | 写法 | 注意 |
+| --- | --- | --- |
+| 状态码 | `res.status` | number，`429` / `500` / `400` |
+| 成功没有 | `res.ok` | boolean，4xx/5xx 都是 `false` |
+| 服务端要求等多久 | `res.headers.get('retry-after')` | **字符串** `"1"`，单位秒，要 `Number(x) * 1000` |
+| 某个响应头 | `res.headers.get('content-type')` | 没有这个头返回 `null` |
+| 流式数据块 | `for await (const p of res.body)` | 每块是 `Uint8Array`，要用 `TextDecoder` |
+
+失败的那一路（catch 到的 `e`）：
+
+| 我想要 | 写法 | 实测值 |
+| --- | --- | --- |
+| 错误类型 | `e.name` | `'TimeoutError'` / `'AbortError'` / `'TypeError'` |
+| 错误说明 | `e.message` | 英文，如 `'terminated'` |
+| 断流的底层原因 | `e.cause?.message` | 如 `'other side closed'` |
+
+后面要写的三段代码（`classify`、`callOnce`、`callWithRetry`），用到的值全在这两张表里。
 
 两个最反直觉的点：
 
