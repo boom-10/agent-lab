@@ -61,6 +61,41 @@ npm run probe:resilience
 | `e.name === 'AbortError'` | **用户或你自己取消的** | **不要重试** |
 | `e instanceof TypeError`，message 含 `terminated` | 连接断了 | 重试 |
 
+### 真实的 429 长这样
+
+不是「一个错误」，是一个**完整的 HTTP 响应**——状态码在行首，`Retry-After` 在**响应头**里，错误内容在**响应体**里：
+
+```text
+HTTP/1.1 429 Too Many Requests
+Content-Type: application/json
+Retry-After: 1
+Date: Sat, 14 Nov 2026 02:06:05 GMT
+Connection: keep-alive
+Transfer-Encoding: chunked
+
+{"error":{"message":"injected 429","type":"fault","code":429}}
+```
+
+最容易看错的一点：**`Retry-After` 是响应头，不是响应体里的字段**。它要用 `res.headers.get('retry-after')` 拿，而不是 `JSON.parse(await res.text()).retryAfter`。
+
+500 的响应体结构一样，只是没有 `Retry-After`：
+
+```json
+{"error":{"message":"injected 500","type":"fault","code":500}}
+```
+
+### 真实的错误对象长这样
+
+如果是超时、取消、断流，你拿到的不是 HTTP 响应，而是**一个异常**。三种异常的原样：
+
+```text
+超时      { name: "TimeoutError", message: "The operation was aborted due to timeout", code: 23, constructor: "DOMException" }
+用户取消  { name: "AbortError",   message: "This operation was aborted",                code: 20, constructor: "DOMException" }
+断流      { name: "TypeError",    message: "terminated", cause: { name: "SocketError", message: "other side closed" } }
+```
+
+注意「超时」和「用户取消」的 `constructor` 都是 `DOMException`，`message` 也都很像——**唯一可靠的区分就是 `name`**。
+
 ### 这一节要用的字段
 
 成功的那一路（拿到了 `Response`）：

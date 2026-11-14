@@ -55,6 +55,44 @@ npm run probe:resilience
 | 断流的底层原因 | `e.cause?.message` | 如 `'other side closed'` |
 | 取消后还能发请求吗 | 用已 abort 的 signal 再 fetch | 立刻抛 `AbortError`，请求根本不发出去 |
 
+### 取消那一刻，真实收到的东西
+
+前两块是完整事件，长这样（线上是一整行，这里展开只是为了一眼看清结构）：
+
+```text
+data: {"id":"chunk-1794621965441","object":"chat.completion.chunk",
+"created":1794621965,"model":"fault-server",
+"system_fingerprint":"fault-1",
+"choices":[{"index":0,"delta":{"content":"一"},"finish_reason":null}]}
+```
+
+第三块**断在 JSON 中间**——这是取消瞬间实际收到的字节，原样：
+
+```text
+data: {
+  "id": "chunk-1794621965441",
+  "object": "chat.completion.chunk",
+  "created": 1794621966,
+  "model": "fault-server",
+  "system_fingerprint": "fault-1",
+  "choices": [
+    {
+      "index": 0,
+      "delta": {
+        "content":
+```
+
+没有收尾的 `}}]}`，没有空行，也没有 `[DONE]`。这就是为什么解析器必须有缓冲区：**你随时可能拿到半块 JSON**，直接 `JSON.parse` 会抛 `SyntaxError`。
+
+同时抛出的错误是：
+
+```text
+{ name: "AbortError",
+  message: "This operation was aborted",
+  code: 20,
+  constructor: "DOMException" }
+```
+
 ## 原理：AbortController 做了什么，没做什么
 
 你做的事只有两行：建一个 `AbortController`，把它的 `signal` 交给 `fetch`；要停的时候调用 `abort()`。
