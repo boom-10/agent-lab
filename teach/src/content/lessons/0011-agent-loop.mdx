@@ -1,0 +1,229 @@
+<Eyebrow>第 0011 节 · 约 45 分钟 · 写一个循环（练习 06）</Eyebrow>
+
+# 最小循环：<br/>一个 while，加上四条不能违反的规则
+
+<Lede>这一节把那圈循环真正写出来。代码只有几十行，但消息数组怎么拼，错了 API 会直接 400。</Lede>
+
+## 循环的骨架
+
+```text
+messages = [用户的问题]
+
+重复：
+  ┌ 把 messages + tools 发给模型
+  ├ finish_reason 不是 tool_calls → 收工，返回 content
+  └ 是 tool_calls：
+      ├ 解析 arguments
+      ├ 执行工具
+      ├ 把「assistant 那条」原样追加进 messages
+      ├ 把「tool 结果」追加进 messages
+      └ 回到开头
+```
+
+看起来简单，难的是**每一条消息的确切形状**。下面全部用真实数据。
+
+## 第一轮：请求与响应（实测）
+
+请求里只有一条 user 消息，外加 `tools`：
+
+```json
+{
+  "model": "deepseek-flash",
+  "thinking": { "type": "disabled" },
+  "tools": [
+    {
+      "type": "function",
+      "function": {
+        "name": "get_weather",
+        "description": "查询指定城市的天气",
+        "parameters": {
+          "type": "object",
+          "properties": { "city": { "type": "string", "description": "城市名" } },
+          "required": ["city"]
+        }
+      }
+    }
+  ],
+  "messages": [{ "role": "user", "content": "北京今天天气怎么样？" }]
+}
+```
+
+响应（节选）：
+
+```json
+{
+  "choices": [{
+    "message": {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [{
+        "index": 0,
+        "id": "call_00_IpFmeEU5BEM70nCTvh4F0532",
+        "type": "function",
+        "function": { "name": "get_weather", "arguments": "{\"city\": \"北京\"}" }
+      }]
+    },
+    "finish_reason": "tool_calls"
+  }],
+  "usage": { "prompt_tokens": 275, "completion_tokens": 38, "prompt_cache_hit_tokens": 128 }
+}
+```
+
+## 第二轮：把两条消息塞回去（实测）
+
+这是**整个循环里最容易写错的一步**。你要往 `messages` 里追加**两条**，不是一条：
+
+```json
+{
+  "model": "deepseek-flash",
+  "thinking": { "type": "disabled" },
+  "tools": [ "……和第一轮完全一样……" ],
+  "messages": [
+    { "role": "user", "content": "北京今天天气怎么样？" },
+    {
+      "role": "assistant",
+      "content": null,
+      "tool_calls": [
+        {
+          "id": "call_00_IpFmeEU5BEM70nCTvh4F0532",
+          "type": "function",
+          "function": { "name": "get_weather", "arguments": "{\"city\": \"北京\"}" }
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call_00_IpFmeEU5BEM70nCTvh4F0532",
+      "content": "北京：晴，22°C"
+    }
+  ]
+}
+```
+
+响应变成正常回答：
+
+```json
+{
+  "choices": [{
+    "message": { "role": "assistant", "content": "北京今天天气晴朗，气温约 22°C，比较舒适，适合外出活动。" },
+    "finish_reason": "stop"
+  }],
+  "usage": { "prompt_tokens": 332, "completion_tokens": 19 }
+}
+```
+
+`finish_reason` 从 `tool_calls` 变成 `stop`，循环结束。
+
+## 四条不能违反的规则
+
+**① `assistant` 那条必须原样放回**，包括 `tool_calls` 数组和它的 `id`。只放 `content` 不行——`content` 是空的。
+
+**② `tool` 消息的 `tool_call_id` 必须和上面的 `id` 一模一样。**
+
+**③ 有一条 `tool_calls` 就要有一条 `tool` 消息**，一个都不能漏。
+
+**④ 循环的出口只有一个判据：`finish_reason` 不是 `tool_calls`。** 不要用「content 非空」「调了几次」来判断。
+
+违反前三条会怎样？这是我们真跑出来的两个 400：
+
+```json
+{"error":{"message":"Messages with role 'tool' must be a response to a preceding message with 'tool_calls' (request_id: mock)","type":"invalid_request_error"}}
+```
+
+```json
+{"error":{"message":"An assistant message with 'tool_calls' must be followed by tool messages responding to each 'tool_call_id', The following tool_call_ids did not have response messages: call_BBB (request_id: mock)","type":"invalid_request_error"}}
+```
+
+第一条是「你塞了 tool 消息，但前面没有对应的 assistant」。第二条是「id 对不上」。
+
+<Callout kind="warn" title="为什么 API 要这么严格">
+
+因为它要保证「每一轮工具调用都有始有终」。如果允许漏掉，模型下一次就不知道那个调用到底执行了没有，会重复调用同一个工具。这个校验其实在帮你。
+
+</Callout>
+
+## 一个顺带的成本事实
+
+对比两轮的 `usage`：
+
+| | prompt_tokens | 其中命中缓存 | completion_tokens |
+| --- | --- | --- | --- |
+| 第一轮 | 275 | 128 | 38 |
+| 第二轮 | 332 | 128 | 19 |
+
+两点：
+
+- 第二轮输入更贵（332 对 275），因为**历史被重发了一遍**。
+- 但两轮都命中了 128 个 token 的缓存——那是 `tools` 定义这段稳定前缀。**工具定义每轮都要发，但只要不变就能命中缓存。**
+
+这就是第 0004 节「稳定前缀放前面」在 Agent 循环里的实际体现。
+
+## 你的产出
+
+```bash
+cd ~/Desktop/Personal/agent-lab/lab
+npm run mock        # 终端 1
+npm run ex:loop     # 终端 2
+```
+
+`exercises/04-agent-loop/loop.ts` 里两个 TODO：
+
+1. `parseArgs()` —— 把 `arguments` 字符串安全地变成对象（它是字符串，可能坏）。
+2. `runAgent()` —— 上面那个循环，外加两道护栏（下一节讲）。
+
+自检有 7 项，其中一项会检查「mock 看到几条消息」——**这是验你的历史拼对没拼对**。拼对了是 3 条（user + assistant + tool），拼错会被这条抓出来。
+
+## 原理：为什么这样就能「自主」
+
+模型看不到你的代码，也不知道自己在一个循环里。它每一轮看到的只有 `messages`。
+
+所以「自主」的真相是：**把上一轮发生了什么写进 messages，模型就会根据这些决定下一步。** 你给它工具结果，它就继续；你不给，它就停在那里不知道怎么往下走。
+
+理解了这一点，第 7 章的「上下文工程」就顺理成章了——那章讲的全是「往 messages 里放什么、放多少」。
+
+## 面试映射
+
+| 面试会问 | 这一节给你的答案 |
+| --- | --- |
+| 手写一个 Agent 循环。 | 见上面的骨架：发消息 → 看 finish_reason → 执行工具 → 追加两条消息 → 循环。 |
+| 为什么要把 assistant 那条放回 history？ | 因为 tool 消息必须挂在一条带 tool_calls 的 assistant 后面，否则 400。 |
+| `tool_call_id` 有什么用？ | 把 tool 结果和具体的调用对应起来。可以并行调多个工具，靠它对号入座。 |
+| 循环什么时候结束？ | `finish_reason` 不是 `tool_calls`。不要用 content 是否为空来判断。 |
+
+## 延伸阅读
+
+- [waylandz 第 2 章「ReAct 循环」](https://waylandz.com/ai-agent-book/)
+- [waylandz 第 34 章「从 DAG 到 Agent Loop」](https://waylandz.com/ai-agent-book/)
+- [Datawhale《Hello-Agents》第四章「智能体经典范式构建」](https://datawhalechina.github.io/hello-agents/)
+
+## 检验一下
+
+<Quiz
+  n={1}
+  of={3}
+  q="模型返回了 tool_calls，你的代码往 messages 里追加几条消息？"
+  options={['1 条：只放工具结果', '2 条：assistant（带 tool_calls）+ tool（带 tool_call_id）', '0 条：直接再发一次请求']}
+  answer={1}
+  ok="对。assistant 那条要原样放回（带上 tool_calls 和 id），tool 结果作为第二条。少一条就 400。"
+  no="再想想。工具结果必须挂在一条带 tool_calls 的 assistant 后面。"
+/>
+
+<Quiz
+  n={2}
+  of={3}
+  q="循环什么时候该结束？"
+  options={['content 不为空的时候', 'finish_reason 不是 tool_calls 的时候', '调用了 3 次工具之后']}
+  answer={1}
+  ok="对。唯一可靠的判据是 finish_reason。用「content 非空」判断会在模型返回空字符串时出问题。"
+  no="再想想。模型调工具时 content 是空字符串，不是空就是「有答案」。"
+/>
+
+<Quiz
+  n={3}
+  of={3}
+  q="为什么第二轮的 prompt_tokens 比第一轮多？"
+  options={['因为模型变慢了', '因为历史被整段重发了一遍', '因为 tools 定义变长了']}
+  answer={1}
+  ok="对。API 是无状态的，每轮都要把完整历史发回去。轮次越多，输入越长——这就是第 7 章上下文工程要解决的问题。"
+  no="再想想。服务端不保存对话，每轮你都得把历史带上。"
+/>

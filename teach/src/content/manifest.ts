@@ -162,9 +162,9 @@ export const chapters: Chapter[] = [
     title: '第 3 章 · Agent 的本质与最小循环',
     subtitle: '大脑、手脚、记忆、主见；三道上限的最小 loop',
     items: [
-      { slug: 'lessons/0010-agent-essence', title: 'Agent 的本质', minutes: 25, wip: true, books: [bookRef('waylandz', 'ch1'), bookRef('hello-agents', 'ch1')] },
-      { slug: 'lessons/0011-agent-loop', title: '最小 Agent Loop', minutes: 40, wip: true, books: [bookRef('waylandz', 'ch2'), bookRef('waylandz', 'ch34'), bookRef('hello-agents', 'ch4')] },
-      { slug: 'lessons/0012-loop-guardrails', title: '三道上限与重复检测', minutes: 30, wip: true, books: [bookRef('waylandz', 'ch42'), bookRef('waylandz', 'ch43')] },
+      { slug: 'lessons/0010-agent-essence', title: 'Agent 的本质', minutes: 25, books: [bookRef('waylandz', 'ch1'), bookRef('hello-agents', 'ch1')] },
+      { slug: 'lessons/0011-agent-loop', title: '最小 Agent Loop', minutes: 40, books: [bookRef('waylandz', 'ch2'), bookRef('waylandz', 'ch34'), bookRef('hello-agents', 'ch4')] },
+      { slug: 'lessons/0012-loop-guardrails', title: '三道上限与重复检测', minutes: 30, books: [bookRef('waylandz', 'ch42'), bookRef('waylandz', 'ch43')] },
     ],
   },
   {
@@ -277,6 +277,7 @@ export const chapters: Chapter[] = [
 export const references: Lesson[] = [
   { slug: 'reference/api-response', title: 'Chat Completions 响应', badge: '参考' },
   { slug: 'reference/error-shapes', title: '失败与取消的字段', badge: '参考' },
+  { slug: 'reference/how-this-course-works', title: '这份课是怎么写的', badge: '关于' },
 ]
 
 /* ─────────── 派生数据 ─────────── */

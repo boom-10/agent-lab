@@ -65,13 +65,16 @@ function mockReply(body) {
  * 为什么这么做：学习者会被要求定义「自己的」工具，写死 greet 就跑不通了。
  * arguments 按该工具 schema 里 required 的字段生成占位值。
  */
-function pickToolCall(body) {
+let callSeq = 0
+function pickToolCall(body, vary = false) {
   const fn = body.tools?.[0]?.function ?? { name: 'unknown', parameters: { properties: {} } }
   const required = fn.parameters?.required ?? Object.keys(fn.parameters?.properties ?? {})
   const args = {}
+  callSeq++
   for (const k of required) {
     const type = fn.parameters?.properties?.[k]?.type ?? 'string'
-    args[k] = type === 'number' || type === 'integer' ? 42 : type === 'boolean' ? true : 'Ada'
+    // vary=true 时字符串参数每次都不一样，用来测「最大步数」（不会触发重复检测）
+    args[k] = type === 'number' || type === 'integer' ? 42 : type === 'boolean' ? true : vary ? `Ada${callSeq}` : 'Ada'
   }
   return {
     id: 'call_' + Math.random().toString(36).slice(2, 10),
@@ -129,10 +132,15 @@ const server = createServer(async (req, res) => {
   const hasTools = Array.isArray(body.tools) && body.tools.length > 0
   // 第二轮：消息里已经有 role:"tool" 的结果 → 返回最终答案
   const hasToolResult = (body.messages ?? []).some((m) => m.role === 'tool')
+  // ?loop=1 强制每一轮都返回 tool_calls，哪怕已经拿到了工具结果。
+  // 用来复现「模型反复调同一个工具」的死循环，测最大步数和重复检测。
+  const forceTool = new URL(req.url, 'http://127.0.0.1').searchParams.get('loop') === '1'
+  // ?vary=1 让每次工具调用的参数都不同（配合 loop 测「最大步数」而不是「重复检测」）
+  const varyTool = new URL(req.url, 'http://127.0.0.1').searchParams.get('vary') === '1'
 
   // ─────────── 非流式 ───────────
   if (!body.stream) {
-    if (hasTools && !hasToolResult) {
+    if (hasTools && (forceTool || !hasToolResult)) {
       res.writeHead(200, { 'Content-Type': 'application/json' })
       res.end(JSON.stringify({
         id, object: 'chat.completion', created: Math.floor(Date.now() / 1000), model: 'deepseek-flash',
@@ -141,7 +149,7 @@ const server = createServer(async (req, res) => {
           message: {
             role: 'assistant',
             content: null,
-            tool_calls: [pickToolCall(body)],
+            tool_calls: [pickToolCall(body, varyTool)],
           },
           logprobs: null,
           finish_reason: 'tool_calls',
@@ -179,10 +187,10 @@ const server = createServer(async (req, res) => {
   const includeUsage = body.stream_options?.include_usage === true
   const pieces = []
 
-  if (hasTools && !hasToolResult) {
+  if (hasTools && (forceTool || !hasToolResult)) {
     // 工具调用流：先发一段文本，再发 tool_calls 增量
     pieces.push({ choices: [{ index: 0, delta: { role: 'assistant', content: '我来调用工具。' }, finish_reason: null }] })
-    const tc = pickToolCall(body)
+    const tc = pickToolCall(body, varyTool)
     pieces.push({
       choices: [{
         index: 0,
@@ -213,7 +221,7 @@ const server = createServer(async (req, res) => {
     prompt_cache_hit_tokens: 96, prompt_cache_miss_tokens: 24,
   }
   pieces.push({
-    choices: [{ index: 0, delta: {}, finish_reason: hasTools && !hasToolResult ? 'tool_calls' : 'stop' }],
+    choices: [{ index: 0, delta: {}, finish_reason: hasTools && (forceTool || !hasToolResult) ? 'tool_calls' : 'stop' }],
     usage,
   })
 

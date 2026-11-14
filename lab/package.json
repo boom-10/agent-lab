@@ -39,7 +39,8 @@
     "probe:resilience": "node toolkit/probe-resilience.mjs",
     "ex:client": "node exercises/03-resilience/client.ts",
     "probe:retry-gain": "node toolkit/probe-retry-gain.mjs",
-    "probe:shapes": "node toolkit/probe-shapes.mjs"
+    "probe:shapes": "node toolkit/probe-shapes.mjs",
+    "ex:loop": "node exercises/04-agent-loop/loop.ts"
   },
   "devDependencies": {
     "@deepseek-ai/dsh": "0.2.1-rc.5",
