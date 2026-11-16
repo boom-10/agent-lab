@@ -53,39 +53,54 @@
  *   parseArgs 直接崩          → 没 try/catch，arguments 是字符串不是对象
  */
 
-const BASE = process.env.MOCK_BASE ?? 'http://127.0.0.1:39001'
+const BASE = process.env.MOCK_BASE ?? "http://127.0.0.1:39001";
 
-export type StopReason = 'done' | 'max-steps' | 'repeated'
+export type StopReason = "done" | "max-steps" | "repeated";
+
+/** 模型请求的一次工具调用 */
+export type ToolCall = {
+  id: string;
+  type: string;
+  function: { name: string; arguments: string };
+};
+
+/** /chat/completions 的响应（只声明我们会用到的字段） */
+export type ChatResponse = {
+  choices: Array<{
+    finish_reason: string;
+    message: { content: string | null; tool_calls?: ToolCall[] };
+  }>;
+};
 
 export type RunResult = {
-  answer: string
+  answer: string;
   /** 调了几次模型 */
-  steps: number
+  steps: number;
   /** 执行了几次工具 */
-  toolCalls: number
-  stopReason: StopReason
-}
+  toolCalls: number;
+  stopReason: StopReason;
+};
 
 /** 工具定义：给模型看的说明书 */
 const TOOLS = [
   {
-    type: 'function',
+    type: "function",
     function: {
-      name: 'get_weather',
-      description: '查询指定城市的天气',
+      name: "get_weather",
+      description: "查询指定城市的天气",
       parameters: {
-        type: 'object',
-        properties: { city: { type: 'string', description: '城市名' } },
-        required: ['city'],
+        type: "object",
+        properties: { city: { type: "string", description: "城市名" } },
+        required: ["city"],
       },
     },
   },
-]
+];
 
 /** 真的执行工具（这里用假数据，不联网） */
 function executeTool(name: string, args: Record<string, unknown>): string {
-  if (name === 'get_weather') return `${String(args.city ?? '未知')}：晴，22°C`
-  return `未知工具：${name}`
+  if (name === "get_weather") return `${String(args.city ?? "未知")}：晴，22°C`;
+  return `未知工具：${name}`;
 }
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -106,7 +121,14 @@ export function parseArgs(
   | { ok: true; args: Record<string, unknown> }
   | { ok: false; error: string }
   | undefined {
-  return undefined
+  if (raw) {
+    try {
+      const args = JSON.parse(raw);
+      return { ok: true, args };
+    } catch (e) {
+      return { ok: false, error: "非法 JSON" };
+    }
+  }
 }
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -132,79 +154,134 @@ export async function runAgent(
   question: string,
   opts: { maxSteps?: number; url?: string } = {},
 ): Promise<RunResult | undefined> {
-  const maxSteps = opts.maxSteps ?? 6
-  const url = opts.url ?? `${BASE}/chat/completions`
+  const maxSteps = opts.maxSteps ?? 6;
+  const url = opts.url ?? `${BASE}/chat/completions`;
 
-  const messages: Array<Record<string, unknown>> = [{ role: 'user', content: question }]
-  let steps = 0
-  let toolCalls = 0
-  let lastKey = ''
+  const messages: Array<Record<string, unknown>> = [
+    { role: "user", content: question },
+  ];
+  let steps = 0;
+  let toolCalls = 0;
+  let lastKey = "";
 
   while (steps < maxSteps) {
     steps++
-    // ← 你写：发请求，拿 finish_reason 和 message
-    // ← 你写：不是 tool_calls 就 return { answer, steps, toolCalls, stopReason: 'done' }
-    // ← 你写：是 tool_calls 就做护栏判断 + 执行 + 追加消息
+
+    // ── 发请求，把 JSON 取出来（这段写好了，不是你的练习重点）──
+    //    ★ 关键：res 是 Response，上面没有 finish_reason。
+    //      要 await res.json() 才拿到带 choices 的那个对象。
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'deepseek-flash',
+        messages,
+        tools: TOOLS,
+        thinking: { type: 'disabled' },
+      }),
+    })
+    const data = (await res.json()) as ChatResponse
+    // data 的形状：{ choices: [ { finish_reason, message: { content, tool_calls } } ], usage }
+    const choice = data.choices[0]
+    const message = choice.message
+
+    // ── 下面两个判断是你的练习 ──
+
+    // ← 你写【判断一】：choice.finish_reason 不是 'tool_calls'
+    //    → return { answer: message.content ?? '', steps, toolCalls, stopReason: 'done' }
+
+    // ← 你写【判断二】：是 'tool_calls'（简化：只处理 message.tool_calls[0]）
+    //    ① 护栏：和上一步的「工具名 + 原始 arguments」相同 → stopReason: 'repeated'
+    //    ② 用 parseArgs 解析，再用 executeTool 执行
+    //    ③ messages.push 两条：assistant（带 tool_calls）+ tool（带 tool_call_id）
+    //    ④ toolCalls++
+    //    ⑤ 如果 steps 已经等于 maxSteps → stopReason: 'max-steps'
   }
 
-  return { answer: '', steps, toolCalls, stopReason: 'max-steps' }
+  return { answer: "", steps, toolCalls, stopReason: "max-steps" };
 }
 
 // ══════════════════════════════════════════════════════════════════════════
 //  自检 —— 不用改
 // ══════════════════════════════════════════════════════════════════════════
 
-const checks: { name: string; pass: boolean; detail: string }[] = []
-const ok = (name: string, pass: boolean, detail: string) => checks.push({ name, pass, detail })
+const checks: { name: string; pass: boolean; detail: string }[] = [];
+const ok = (name: string, pass: boolean, detail: string) =>
+  checks.push({ name, pass, detail });
 
 if (parseArgs('{"city":"Ada"}') === undefined) {
-  console.log('\n  ⏳ 还没开始写 —— TODO 1 的 parseArgs() 还返回 undefined。')
-  console.log('     写完再跑 npm run ex:loop。\n')
-  process.exit(0)
+  console.log("\n  ⏳ 还没开始写 —— TODO 1 的 parseArgs() 还返回 undefined。");
+  console.log("     写完再跑 npm run ex:loop。\n");
+  process.exit(0);
 }
 
 // ① parseArgs
 {
-  const good = parseArgs('{"city":"Ada"}')
-  ok('parseArgs 能吃合法 JSON', good?.ok === true, JSON.stringify(good))
-  const bad = parseArgs('{city: Ada')
-  ok('parseArgs 能挡住非法 JSON', bad?.ok === false, JSON.stringify(bad))
+  const good = parseArgs('{"city":"Ada"}');
+  ok("parseArgs 能吃合法 JSON", good?.ok === true, JSON.stringify(good));
+  const bad = parseArgs("{city: Ada");
+  ok("parseArgs 能挡住非法 JSON", bad?.ok === false, JSON.stringify(bad));
 }
 
 // ② 正常两轮：模型第一次要工具，第二次给答案
 {
-  const r = await runAgent('北京天气怎么样？')
+  const r = await runAgent("北京天气怎么样？");
   if (r) {
-    ok('正常流程两步结束', r.steps === 2 && r.stopReason === 'done', `steps=${r.steps} stopReason=${r.stopReason}`)
-    ok('执行了 1 次工具', r.toolCalls === 1, `toolCalls=${r.toolCalls}`)
+    ok(
+      "正常流程两步结束",
+      r.steps === 2 && r.stopReason === "done",
+      `steps=${r.steps} stopReason=${r.stopReason}`,
+    );
+    ok("执行了 1 次工具", r.toolCalls === 1, `toolCalls=${r.toolCalls}`);
     // mock 会数消息条数：user + assistant(tool_calls) + tool = 3 条
-    ok('历史拼对了（mock 应该看到 3 条消息）', r.answer.includes('3 条消息'), `answer=${r.answer.slice(0, 40)}`)
+    ok(
+      "历史拼对了（mock 应该看到 3 条消息）",
+      r.answer.includes("3 条消息"),
+      `answer=${r.answer.slice(0, 40)}`,
+    );
   }
 }
 
 // ③ 护栏一：最大步数（用 vary 让每次参数不同，避免触发重复检测）
 {
-  const r = await runAgent('天气', { maxSteps: 4, url: `${BASE}/chat/completions?loop=1&vary=1` })
+  const r = await runAgent("天气", {
+    maxSteps: 4,
+    url: `${BASE}/chat/completions?loop=1&vary=1`,
+  });
   if (r) {
-    ok('卡死时由「最大步数」兜住', r.stopReason === 'max-steps' && r.steps === 4, `steps=${r.steps} stopReason=${r.stopReason}`)
+    ok(
+      "卡死时由「最大步数」兜住",
+      r.stopReason === "max-steps" && r.steps === 4,
+      `steps=${r.steps} stopReason=${r.stopReason}`,
+    );
   }
 }
 
 // ④ 护栏二：重复调用（参数相同）
 {
-  const r = await runAgent('天气', { maxSteps: 10, url: `${BASE}/chat/completions?loop=1` })
+  const r = await runAgent("天气", {
+    maxSteps: 10,
+    url: `${BASE}/chat/completions?loop=1`,
+  });
   if (r) {
-    ok('同样的调用重复出现就停', r.stopReason === 'repeated' && r.steps === 2, `steps=${r.steps} stopReason=${r.stopReason}`)
+    ok(
+      "同样的调用重复出现就停",
+      r.stopReason === "repeated" && r.steps === 2,
+      `steps=${r.steps} stopReason=${r.stopReason}`,
+    );
   }
 }
 
-console.log('\n  ─────────── 自检 ───────────\n')
-for (const c of checks) console.log(`  ${c.pass ? '✅' : '❌'} ${c.name}  —  ${c.detail}`)
-const failed = checks.filter((c) => !c.pass).length
-console.log()
+console.log("\n  ─────────── 自检 ───────────\n");
+for (const c of checks)
+  console.log(`  ${c.pass ? "✅" : "❌"} ${c.name}  —  ${c.detail}`);
+const failed = checks.filter((c) => !c.pass).length;
+console.log();
 if (failed === 0) {
-  console.log('  🎉 全部通过。这个循环就是所有 Agent 框架的核心，剩下的都是它的武装。\n')
-  process.exit(0)
+  console.log(
+    "  🎉 全部通过。这个循环就是所有 Agent 框架的核心，剩下的都是它的武装。\n",
+  );
+  process.exit(0);
 }
-console.log(`  ${failed} 项没过。对照文件开头的「常见错误对照」排查。\n`)
-process.exit(1)
+console.log(`  ${failed} 项没过。对照文件开头的「常见错误对照」排查。\n`);
+process.exit(1);
