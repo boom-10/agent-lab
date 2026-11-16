@@ -66,10 +66,13 @@ export type ToolCall = {
 
 /** /chat/completions 的响应（只声明我们会用到的字段） */
 export type ChatResponse = {
-  choices: Array<{
-    finish_reason: string;
-    message: { content: string | null; tool_calls?: ToolCall[] };
-  }>;
+  // 用单元素元组：真实响应里 choices 只有一个，这样 choices[0] 不会是 undefined
+  choices: [
+    {
+      finish_reason: string;
+      message: { content: string | null; tool_calls?: ToolCall[] };
+    },
+  ];
 };
 
 export type RunResult = {
