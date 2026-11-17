@@ -1,0 +1,136 @@
+<Eyebrow>第 0014 节 · 约 35 分钟 · 两条链路对照</Eyebrow>
+
+# ReAct 与原生 tool_calls：<br/>同一件事的两种接线方式
+
+<Lede>上一节你用文本协议跑通了循环。这一节把它和原生 tool_calls 摆在一起，逐项对比——你会看到差别不在「能不能用」，而在「谁保证正确」。</Lede>
+
+## 同一个任务，两条链路
+
+问「北京今天天气怎么样？」，两边都要走两轮。
+
+**原生 tool_calls**
+
+```text
+第一轮请求：messages=[user] + tools=[get_weather 的 schema]
+第一轮响应：finish_reason=tool_calls
+            message.tool_calls=[{ id, function: { name, arguments: '{"city":"北京"}' } }]
+
+你做的事：执行工具
+第二轮请求：messages=[user, assistant(带 tool_calls), tool(带 tool_call_id)]
+第二轮响应：finish_reason=stop，message.content="北京今天天气晴朗……"
+```
+
+**ReAct 文本协议**
+
+```text
+第一轮响应：finish_reason=stop，content="Thought: …\nAction: get_weather\nAction Input: {\"city\":\"北京\"}"
+
+你做的事：解析文本 → 执行工具
+第二轮请求：messages=[user, assistant(原文), user("Observation: 北京：晴，22°C")]
+第二轮响应：content="Thought: …\nFinal Answer: 北京今天晴，22°C"
+```
+
+两边的轮数一样，成本量级也一样。**差别全在「字段怎么来」。**
+
+## 逐项对比
+
+| | 原生 tool_calls | ReAct 文本 |
+| --- | --- | --- |
+| 工具调用在哪 | `message.tool_calls` 数组 | `message.content` 这段文字里 |
+| 谁生成的 | API 按 schema 结构化输出 | 模型自己写的自然语言 |
+| 参数类型 | `arguments` 是 JSON 字符串，**API 保证是字符串** | `Action Input:` 后面可以是任何东西 |
+| 结果塞回 | `role: 'tool'` + `tool_call_id` | `role: 'user'` + `Observation: ` 前缀 |
+| 漏了/错了 | API 直接 400，报错说清楚 | 没人管，模型自己可能重复调用 |
+| 多个工具并行 | 数组里多个元素，靠 `id` 对号 | 只能按顺序，靠文本顺序 |
+| 能否「假装调用」 | 不能，字段是 API 生成的 | 能，整段文字都是模型写的 |
+| 模型支持 | 需要模型支持 tools | 任何能对话的模型都行 |
+
+## 为什么原生赢了
+
+不是因为它更「先进」，是因为它把**正确性的责任从模型挪到了 API**。
+
+用文本协议时，你要处理这些：
+
+- 模型用了中文冒号（我们的实测：直接解析失败）
+- `Action Input` 不是合法 JSON
+- 模型说「我查到了」但其实一次工具都没调
+- 两个工具的结果要按顺序对上，错位了没人告诉你
+
+用原生协议，这四种情况里前两种被 schema 挡掉，第三种不可能（字段是 API 生成的），第四种有 `tool_call_id` 兜底。**你少写一半的防御代码。**
+
+这就是现在所有主流框架（LangChain、LlamaIndex、DSH）都走原生协议的原因。第 3 章那个循环才是生产写法。
+
+## 但 ReAct 没死
+
+它换了个地方活着。
+
+**① 思考过程被单独拎出来了。** 开启 `thinking` 时，DeepSeek 的响应里会多一个字段：
+
+```json
+{
+  "message": {
+    "role": "assistant",
+    "content": "北京今天天气晴朗，气温约 22°C……",
+    "reasoning_content": "用户问北京天气，我有 get_weather 工具，应该先调用它……"
+  }
+}
+```
+
+`reasoning_content` 就是 ReAct 里的 `Thought`——只是从「你自己解析的一段文本」变成了「API 给的一个字段」。**思想留下了，格式被标准化了。**
+
+**② 没有 tool 支持的模型还得用它。** 一些开源小模型、微调前的基座模型不认识 `tools` 参数，这时候文本协议是唯一的路。
+
+**③ 论文复现和教学。** 你这一节写的解析器，就是理解「Agent 为什么需要结构化输出」的最短路径。
+
+## 一句话总结
+
+> **ReAct 是「用约定换通用」，tool_calls 是「用约束换可靠」。**
+
+当年选前者是因为没得选；现在有得选了，就没人愿意回去维护那个解析器。
+
+## 面试映射
+
+| 面试会问 | 这一节给你的答案 |
+| --- | --- |
+| 为什么现在都用 function calling 而不是 ReAct？ | 正确性责任从模型挪到 API：schema 约束参数、id 保证对号、漏调用直接报错。 |
+| ReAct 的「思考」去哪了？ | 进了 `reasoning_content` 这类字段。思想保留，格式标准化。 |
+| 什么场景还会用 ReAct？ | 模型不支持 tools、论文复现、以及需要「把推理过程当文本处理」的场合。 |
+| 两种协议的成本差多少？ | 轮数一样、token 量级一样。差别在维护成本和出错率，不在钱。 |
+
+## 延伸阅读
+
+- [waylandz 第 3 章「工具调用基础」](https://waylandz.com/ai-agent-book/)
+- [OpenAI：Function calling 文档](https://platform.openai.com/docs/guides/function-calling)
+- [ReAct 原始论文（arXiv:2210.03629）](https://arxiv.org/abs/2210.03629)
+
+## 检验一下
+
+<Quiz
+  n={1}
+  of={3}
+  q="两种协议最本质的差别是什么？"
+  options={['轮数不一样，ReAct 要多跑几轮', '工具调用是结构化字段还是自然语言文本，即「谁保证格式」', 'ReAct 更省钱']}
+  answer={1}
+  ok="对。轮数、成本都差不多。差别在于格式由 API 保证，还是靠模型自愿遵守。"
+  no="再想想。两边的轮数和成本量级是一样的。"
+/>
+
+<Quiz
+  n={2}
+  of={3}
+  q="原生协议里，为什么模型没法「假装调用工具」？"
+  options={['因为模型更诚实', '因为 tool_calls 是 API 根据模型输出生成的结构化字段，不调就没有这个字段', '因为会被审计']}
+  answer={1}
+  ok="对。模型只能输出 token，tool_calls 是 API 解析后生成的结构。它想「编一个调用」也只能编文字，不会出现在 tool_calls 里。"
+  no="再想想。关键在于这个字段由谁生成。"
+/>
+
+<Quiz
+  n={3}
+  of={3}
+  q="ReAct 的 Thought 现在去哪了？"
+  options={['被删掉了', '变成了 reasoning_content 这样的独立字段', '还在 content 里，没变']}
+  answer={1}
+  ok="对。思想保留下来了，只是从「你要解析的一段文本」变成「API 给你的一个字段」。"
+  no="再想想。开启 thinking 时，响应里会多一个什么字段？"
+/>

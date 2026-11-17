@@ -14,7 +14,7 @@
 import { chromium } from 'playwright'
 
 const BASE = process.env.TOC_BASE ?? 'http://localhost:3021'
-const SLUGS = ['0001-first-api-call', '0002-streaming', '0003-tool-calls', '0004-usage-and-cost', '0005-prefill-decode', '0006-kv-cache', '0007-ttft-budget', '0008-llm-client', '0009-cancel-retry', '0010-agent-essence', '0011-agent-loop', '0012-loop-guardrails']
+const SLUGS = ['0001-first-api-call', '0002-streaming', '0003-tool-calls', '0004-usage-and-cost', '0005-prefill-decode', '0006-kv-cache', '0007-ttft-budget', '0008-llm-client', '0009-cancel-retry', '0010-agent-essence', '0011-agent-loop', '0012-loop-guardrails', '0013-react', '0014-react-vs-native']
 
 const b = await chromium.launch()
 const p = await b.newPage({ viewport: { width: 1680, height: 1000 } })

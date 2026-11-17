@@ -46,8 +46,20 @@ function chunkText(text, size = 6) {
  * 根据收到的消息条数构造回复 —— 让「追问 6（不带历史）」能被观察到。
  * 真实模型也是这个道理：它只能看到你发给它的东西。
  */
-function mockReply(body) {
+function mockReply(body, reactMode = false) {
   const msgs = body.messages ?? []
+  if (reactMode) {
+    // ReAct 文本协议：模型用自然语言输出 Thought / Action / Action Input，
+    // 或者 Thought / Final Answer。响应里没有 tool_calls，全靠你解析文本。
+    const hasObservation = msgs.some((m) => typeof m.content === 'string' && m.content.startsWith('Observation:'))
+    if (!hasObservation) {
+      return 'Thought: 我需要知道当地天气，先调用 get_weather。\n' +
+             'Action: get_weather\n' +
+             'Action Input: {"city": "Ada"}'
+    }
+    return 'Thought: 我已经拿到工具结果了，可以回答了。\n' +
+           'Final Answer: Ada 今天晴，22°C，适合出门。'
+  }
   const nonSystem = msgs.filter((m) => m.role !== 'system')
   if (nonSystem.length <= 1) {
     const last = nonSystem[0]?.content ?? ''
@@ -137,6 +149,8 @@ const server = createServer(async (req, res) => {
   const forceTool = new URL(req.url, 'http://127.0.0.1').searchParams.get('loop') === '1'
   // ?vary=1 让每次工具调用的参数都不同（配合 loop 测「最大步数」而不是「重复检测」）
   const varyTool = new URL(req.url, 'http://127.0.0.1').searchParams.get('vary') === '1'
+  // ?react=1 让模型改用 ReAct 文本协议（Thought/Action/Observation），不返回 tool_calls
+  const reactMode = new URL(req.url, 'http://127.0.0.1').searchParams.get('react') === '1'
 
   // ─────────── 非流式 ───────────
   if (!body.stream) {
@@ -166,7 +180,7 @@ const server = createServer(async (req, res) => {
     res.writeHead(200, { 'Content-Type': 'application/json' })
     res.end(JSON.stringify({
       id, object: 'chat.completion', created: Math.floor(Date.now() / 1000), model: 'deepseek-flash',
-      choices: [{ index: 0, message: { role: 'assistant', content: mockReply(body) }, logprobs: null, finish_reason: 'stop' }],
+      choices: [{ index: 0, message: { role: 'assistant', content: mockReply(body, reactMode) }, logprobs: null, finish_reason: 'stop' }],
       usage: {
         prompt_tokens: 7, completion_tokens: 11, total_tokens: 18,
         prompt_tokens_details: { cached_tokens: 0 },
@@ -205,7 +219,7 @@ const server = createServer(async (req, res) => {
       pieces.push({ choices: [{ index: 0, delta: { tool_calls: [{ index: 0, function: { arguments: p } }] }, finish_reason: null }] })
     }
   } else {
-    const text = mockReply(body)
+    const text = mockReply(body, reactMode)
     // ★ 首块只带 role、content 是空字符串 —— 真 API 就是这样（我实测过）。
     //   不这么做，学习者会在第一块就记 TTFT，养成错的习惯。
     pieces.push({ choices: [{ index: 0, delta: { role: 'assistant', content: '' }, finish_reason: null }] })

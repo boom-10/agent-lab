@@ -172,8 +172,8 @@ export const chapters: Chapter[] = [
     title: '第 4 章 · ReAct 与工具调用基础',
     subtitle: 'Thought、Action、Observation；ReAct 与原生 tool_calls 的对比',
     items: [
-      { slug: 'lessons/0013-react', title: 'ReAct 循环', minutes: 35, wip: true, books: [bookRef('waylandz', 'ch2'), bookRef('hello-agents', 'ch4')] },
-      { slug: 'lessons/0014-react-vs-native', title: 'ReAct 与原生 tool_calls 对比', minutes: 35, wip: true, books: [bookRef('waylandz', 'ch3'), bookRef('hello-agents', 'ch4')] },
+      { slug: 'lessons/0013-react', title: 'ReAct 循环', minutes: 35, books: [bookRef('waylandz', 'ch2'), bookRef('hello-agents', 'ch4')] },
+      { slug: 'lessons/0014-react-vs-native', title: 'ReAct 与原生 tool_calls 对比', minutes: 35, books: [bookRef('waylandz', 'ch3'), bookRef('hello-agents', 'ch4')] },
     ],
   },
   {

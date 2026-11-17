@@ -1,0 +1,172 @@
+<Eyebrow>第 0013 节 · 约 35 分钟 · 写一个文本协议的循环（练习 07）</Eyebrow>
+
+# ReAct：<br/>当工具调用藏在自然语言里
+
+<Lede>上一章的循环靠 `tool_calls` 字段。这一节回到「没有这个字段」的年代：模型只输出文字，你要从文字里认出「它想调工具」。</Lede>
+
+## 不用 tool_calls 也能调工具
+
+2022 年 ReAct 论文提出这套方法时，主流模型还没有 `tool_calls` 这种结构化输出。办法是**约定一种文本格式**，让模型照着写：
+
+```
+Thought: 我需要知道当地天气，先调用 get_weather。
+Action: get_weather
+Action Input: {"city": "Ada"}
+```
+
+模型写完就停。你解析出 `Action` 和 `Action Input`，执行工具，再把结果按约定塞回去：
+
+```
+Observation: Ada：晴，22°C
+```
+
+然后模型看到 Observation，继续写 `Thought`，直到给出：
+
+```
+Thought: 我已经拿到工具结果了，可以回答了。
+Final Answer: Ada 今天晴，22°C，适合出门。
+```
+
+## 真实的两轮（mock 输出，原样）
+
+第一轮（消息里还没有 Observation）：
+
+```text
+Thought: 我需要知道当地天气，先调用 get_weather。
+Action: get_weather
+Action Input: {"city": "Ada"}
+```
+
+第二轮（把 Observation 塞进去之后）：
+
+```text
+Thought: 我已经拿到工具结果了，可以回答了。
+Final Answer: Ada 今天晴，22°C，适合出门。
+```
+
+注意 `finish_reason` 两轮都是 **`stop`**——从 API 的角度看，这只是两段普通文字。**协议只存在于你和模型的约定里，API 完全不知道。**
+
+## 解析：逐行看前缀
+
+别上正则，逐行比前缀更稳：
+
+| 行的开头 | 取什么 |
+| --- | --- |
+| `Thought:` | 后面到行尾 |
+| `Action:` | 工具名 |
+| `Action Input:` | 后面是 **JSON 字符串**，要 `JSON.parse` |
+| `Final Answer:` | 答案，循环结束 |
+
+两个顺序上的坑：
+
+- **`Action Input:` 要在 `Action:` 之前判断**吗？其实不用——`"Action Input: {...}"` 不以 `"Action:"` 开头（冒号位置不同）。但把长的放前面更保险，以后加字段时不会踩。
+- **`Final Answer:` 优先于 `Action`**。有些模型会同时写「如果失败就……」的动作，先认答案。
+
+## 把 Observation 塞回去
+
+这是和原生 `tool_calls` 最大的不同：
+
+| | 原生 tool_calls | ReAct |
+| --- | --- | --- |
+| 工具结果放哪 | `role: 'tool'` + `tool_call_id` | `role: 'user'`，内容以 `Observation: ` 开头 |
+| 谁保证对号入座 | API 校验 `tool_call_id` | 没人，靠你按顺序塞 |
+| 漏了会怎样 | 400 报错 | 模型可能重复调用，或者不知道结果 |
+
+`Observation: ` 这个前缀不能少——模型就是靠它认出「这是工具结果，不是用户新说的话」。
+
+## 文本协议脆弱在哪
+
+我用上一节那个解析器，喂了五种常见写法（本地实测）：
+
+| 模型的写法 | 解析结果 |
+| --- | --- |
+| 标准三行 | ✅ `action` |
+| 包在 Markdown 代码围栏里 | ✅ `action`（逐行 trim，围栏行不影响） |
+| `Action Input: city=Ada`（不是 JSON） | ❌ `error`（Input 不是合法 JSON） |
+| 用了中文冒号 `Thought：` | ❌ `error`（没说清楚） |
+| 直接说一句中文「我觉得应该查一下天气」 | ❌ `error`（没说清楚） |
+
+三个结论：
+
+1. **代码围栏不是问题**，逐行 trim 就够了——这一点比我预想的健壮。
+2. **中文冒号会全崩**。模型偶尔会切换成全角标点，你就解析不到任何字段。
+3. **`Action Input` 不是 JSON 就没有退路**。原生 `tool_calls` 里这个字段由 API 保证是字符串、且模型被 schema 约束着；文本协议里它可以是任何东西。
+
+这就是为什么现在没人用 ReAct 做生产——不是因为它不work，是因为**它的正确性依赖模型自愿遵守格式**。
+
+<Callout kind="warn" title="还有一种崩法更隐蔽">
+
+模型可以「假装」自己调用了工具：
+
+```text
+Thought: 我查到了，Ada 今天晴，22°C。
+Final Answer: Ada 今天晴，22°C。
+```
+
+它一次工具都没调，但你的解析器看到 `Final Answer` 就直接返回了。**你无法从文本上区分「真调了」和「编的」。**
+
+原生协议里，`tool_calls` 是 API 生成的字段，模型编不出来。这一条差异比格式本身更重要。
+
+</Callout>
+
+## 你的产出
+
+```bash
+cd ~/Desktop/Personal/agent-lab/lab
+npm run mock        # 终端 1
+npm run ex:react    # 终端 2
+```
+
+`exercises/05-react/react.ts` 里两个 TODO：
+
+1. `parseReAct()` —— 从文本里抠出 `Thought / Action / Action Input / Final Answer`。
+2. `runReAct()` —— 循环：问 → 解析 → 执行 → 塞 Observation → 再问。
+
+自检 8 项，其中一项是「说胡话时归为 error」——**解析器必须能明确地失败**，不能猜。
+
+## 面试映射
+
+| 面试会问 | 这一节给你的答案 |
+| --- | --- |
+| ReAct 是什么？ | 让模型在文本里交替输出「思考」和「动作」，工具结果以 Observation 塞回去，循环到给出最终答案。 |
+| ReAct 和 tool_calls 有什么区别？ | 工具调用是藏在自然文本里还是结构化字段里。区别在于「谁保证格式」。 |
+| ReAct 的主要问题？ | 解析脆弱（中文标点、非法 JSON）、无法防「假装调用」、多工具时顺序和对号全靠自己。 |
+| 现在还需要 ReAct 吗？ | 生产基本不用。但它的「先想再做」思想留下来了，只是搬进了 API 的思考字段和 prompt 里。 |
+
+## 延伸阅读
+
+- [waylandz 第 2 章「ReAct 循环」](https://waylandz.com/ai-agent-book/)
+- [ReAct 原始论文（arXiv:2210.03629）](https://arxiv.org/abs/2210.03629)
+- [Datawhale《Hello-Agents》第四章「智能体经典范式构建」](https://datawhalechina.github.io/hello-agents/)
+
+## 检验一下
+
+<Quiz
+  n={1}
+  of={3}
+  q="ReAct 里，工具结果要以什么形式塞回对话？"
+  options={['role: "tool"，带 tool_call_id', 'role: "user"，内容以 "Observation: " 开头', '直接拼在 system 里']}
+  answer={1}
+  ok="对。文本协议没有 tool 角色可用，结果作为一条用户消息塞回去，靠 `Observation: ` 前缀让模型认出来。"
+  no="再想想。这条链路里没有 `role: 'tool'` 这个概念。"
+/>
+
+<Quiz
+  n={2}
+  of={3}
+  q="模型输出 `Thought：查天气`（中文冒号），你的解析器会怎样？"
+  options={['照样能解析，冒号不影响', '解析不到字段，通常会报「没说清楚要做什么」', 'API 会自动纠正成全角']}
+  answer={1}
+  ok="对。我们的实测里这一条直接归为 error——逐行比前缀时，全角冒号对不上半角的 `Thought:`。"
+  no="再想想。解析器是按 `Thought:` 这个精确前缀比的。"
+/>
+
+<Quiz
+  n={3}
+  of={3}
+  q="为什么说「模型可以假装调用了工具」？"
+  options={['因为它会撒谎', '因为文本协议里，答案和工具调用都是模型写的字，你无法验证真伪', '因为 API 会伪造 tool_calls']}
+  answer={1}
+  ok="对。原生协议里 tool_calls 由 API 生成，模型编不出来；文本协议里连「我查到了」都是模型自己写的，你没法区分。"
+  no="再想想。区别在于「这个字段是谁生成的」。"
+/>
